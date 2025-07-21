@@ -1,0 +1,284 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Dashboard - Referido Coins</title>
+  <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
+  <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet" />
+  <style>
+    body {
+      background: linear-gradient(135deg, #f0f4ff 0%, #dbe9ff 100%);
+      font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+      min-height: 100vh;
+    }
+    .navbar {
+      background: linear-gradient(90deg, #2575fc 0%, #6a11cb 100%);
+    }
+    .navbar-brand, .btn-logout {
+      color: white !important;
+      font-weight: 600;
+    }
+    .container { margin-top: 40px; max-width: 960px; }
+    .robot-img { position: fixed; bottom: 20px; right: 0; width: 250px; animation: float 3s ease-in-out infinite; }
+    @keyframes float {
+      0% { transform: translateY(0); }
+      50% { transform: translateY(-15px); }
+      100% { transform: translateY(0); }
+    }
+    .speech-bubble {
+      position: fixed; bottom: 340px; right: 60px;
+      background: white; padding: 10px 20px;
+      border-radius: 20px; font-weight: 600;
+      animation: fadeOut 6s forwards;
+    }
+    @keyframes fadeOut {
+      0%, 80% { opacity: 1; }
+      100% { opacity: 0; display: none; }
+    }
+    .card { border-radius: 14px; box-shadow: 0 6px 18px rgba(0,0,0,0.08); border: none; }
+    .card-title { color: #2575fc; font-weight: 700; }
+    .btn-primary { background-color: #2575fc; border: none; font-weight: 600; }
+    .btn-primary:hover { background-color: #1a52d1; }
+    #mensajeRetiro, #mensajeDeposito {
+      font-weight: 600; text-align: center; min-height: 1.4em;
+    }
+    .moneda-icono {
+      margin-right: 8px;
+    }
+  </style>
+</head>
+<body>
+
+<!-- Navbar -->
+<nav class="navbar navbar-expand-lg px-4">
+  <a class="navbar-brand" href="#">Hola, {{ nombre_usuario }} 👋</a>
+  <div class="ms-auto">
+    <a href="/logout" class="btn btn-outline-light btn-logout">Cerrar sesión</a>
+  </div>
+</nav>
+
+<!-- Contenido -->
+<div class="container">
+  <div class="card p-4 mb-5">
+    <h5 class="card-title mb-3">Estadísticas de Actividad</h5>
+    <canvas id="graficoDepositos" class="mb-4" height="150"></canvas>
+    <canvas id="graficoRetiros" height="150"></canvas>
+  </div>
+  <!-- Saldo y Ganancias -->
+  <div class="row my-5 g-4">
+    <div class="col-md-6">
+      <div class="card p-4">
+        <h5 class="card-title">Saldo Disponible</h5>
+        {% if saldo_monedas %}
+          <div class="mb-2">
+            <label for="selectorMoneda" class="form-label">Selecciona moneda:</label>
+            <select id="selectorMoneda" class="form-select">
+              {% for moneda in saldo_monedas.keys() %}
+                <option value="{{ moneda }}">
+                  {% if moneda == 'USDT' %}💲 USDT
+                  {% elif moneda == 'BTC' %}₿ BTC
+                  {% elif moneda == 'DOP' %}RD$ Pesos
+                  {% else %}{{ moneda }}{% endif %}
+                </option>
+              {% endfor %}
+            </select>
+          </div>
+          <p class="fs-4 fw-semibold mt-2">
+            Balance: <span id="valorMoneda">${{ saldo_monedas[saldo_monedas|first] }}</span>
+          </p>
+        {% else %}
+          <p class="text-muted">No tienes saldo disponible aún.</p>
+        {% endif %}
+      </div>
+    </div>
+    <div class="col-md-6">
+      <div class="card p-4">
+        <h5 class="card-title">Total de Ganancias</h5>
+        <p id="bonos" class="fs-4 fw-semibold mb-0">${{ ganancias }}</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Código de referido -->
+  <div class="card p-4 mb-4">
+    <h5 class="card-title mb-3">Tu código de referido</h5>
+    <input type="text" class="form-control text-center fw-bold" value="{{ codigo_referido }}" readonly>
+    <p class="mt-2">Total de referidos: <strong>{{ total_referidos }}</strong></p>
+  </div>
+  <!-- Formulario de Depósito -->
+  <div class="card p-4 mb-5">
+    <h5 class="card-title mb-3">Depositar</h5>
+    <form id="depositarForm" novalidate>
+      <div class="mb-3">
+        <label for="montoDeposito" class="form-label">Monto a depositar</label>
+        <input type="number" class="form-control" id="montoDeposito" min="1" step="0.01" placeholder="Ej: 100.00" required />
+      </div>
+      <div class="mb-3">
+        <label for="moneda" class="form-label">Método de depósito</label>
+        <select class="form-select" id="moneda" required>
+          <option value="">Selecciona método</option>
+          <option value="USDT">💲 USDT</option>
+          <option value="BTC">₿ Bitcoin</option>
+          <option value="reservas">🏦 Banco de Reservas</option>
+          <option value="popular">🏦 Banco Popular</option>
+        </select>
+      </div>
+      <div id="walletInfo" class="alert alert-info d-none"></div>
+      <button type="submit" class="btn btn-primary w-100">Depositar</button>
+      <p id="mensajeDeposito" class="mt-3" aria-live="polite"></p>
+    </form>
+  </div>
+
+  <!-- Formulario de Retiro -->
+  <div class="card p-4 mb-5">
+    <h5 class="card-title mb-3">Solicitar Retiro</h5>
+    <form id="retirarForm" novalidate>
+      <div class="mb-3">
+        <label for="montoRetiro" class="form-label">Monto a Retirar (mínimo $10)</label>
+        <input type="number" class="form-control" id="montoRetiro" min="10" step="0.01" required />
+      </div>
+      <button type="submit" class="btn btn-primary w-100">Solicitar Retiro</button>
+      <p id="mensajeRetiro" class="mt-3" aria-live="polite"></p>
+    </form>
+  </div>
+  <!-- Historial de Depósitos -->
+  <div class="card p-4 mb-5">
+    <h5 class="card-title mb-3">Historial de Depósitos</h5>
+    {% if depositos %}
+      <ul class="list-group">
+        {% for dep in depositos %}
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            ${{ dep.monto }} - {{ dep.moneda }}
+            <span class="badge bg-primary rounded-pill">{{ dep.fecha }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="text-muted">Aún no has realizado depósitos.</p>
+    {% endif %}
+  </div>
+
+  <!-- Historial de Retiros -->
+  <div class="card p-4 mb-5">
+    <h5 class="card-title mb-3">Historial de Retiros</h5>
+    {% if retiros %}
+      <ul class="list-group">
+        {% for retiro in retiros %}
+          <li class="list-group-item d-flex justify-content-between align-items-center">
+            ${{ retiro.monto }}
+            <span class="badge bg-primary rounded-pill">{{ retiro.fecha }}</span>
+          </li>
+        {% endfor %}
+      </ul>
+    {% else %}
+      <p class="text-muted">Aún no has realizado retiros.</p>
+    {% endif %}
+  </div>
+</div>
+
+<img src="/static/dashboard_robot.png" alt="Referido Coins Robot" class="robot-img">
+<div class="speech-bubble">¡Listo para invertir!</div>
+
+<!-- Scripts -->
+<script>
+  const walletInfo = document.getElementById("walletInfo");
+  const metodo = document.getElementById("moneda");
+
+  metodo.addEventListener("change", function () {
+    const valor = metodo.value;
+    walletInfo.classList.remove("d-none");
+
+    let texto = '';
+    switch (valor) {
+      case "USDT":
+        texto = `<strong>Dirección USDT:</strong><br><code id="dato">0x394BD9d4AA06d3CF8910E9b7cBfdA480fb781fef</code>`;
+        break;
+      case "BTC":
+        texto = `<strong>Dirección BTC:</strong><br><code id="dato">3DP65kBvM7rojxq6dR9ZbwSzrRWUdUenC5</code>`;
+        break;
+      case "reservas":
+        texto = `<strong>Banco de Reservas (Cuenta de Ahorros):</strong><br>Cuenta: <code id="dato">9608112338</code>`;
+        break;
+      case "popular":
+        texto = `<strong>Banco Popular (Cuenta Corriente):</strong><br>Cuenta: <code id="dato">847453156</code>`;
+        break;
+      default:
+        walletInfo.classList.add("d-none");
+        return;
+    }
+
+    texto += `<br><button class="btn btn-sm btn-outline-primary mt-2" onclick="copiar()">Copiar</button>`;
+    walletInfo.innerHTML = texto;
+  });
+
+  function copiar() {
+    const texto = document.getElementById("dato").innerText;
+    navigator.clipboard.writeText(texto)
+      .then(() => alert("Copiado al portapapeles"))
+      .catch(() => alert("Error al copiar"));
+  }
+
+  // Selector de moneda para saldo
+  const selectorMoneda = document.getElementById("selectorMoneda");
+  const valorMoneda = document.getElementById("valorMoneda");
+  const saldosPorMoneda = {{ saldo_monedas | tojson }};
+
+  if (selectorMoneda && valorMoneda) {
+    selectorMoneda.addEventListener("change", function () {
+      const seleccionada = selectorMoneda.value;
+      valorMoneda.textContent = "$" + (saldosPorMoneda[seleccionada] || "0.00");
+    });
+  }
+
+  // 📊 Gráficos de actividad
+  const datosDepositos = {{ depositos_json | safe }};
+  const datosRetiros = {{ retiros_json | safe }};
+
+  const fechasDep = datosDepositos.map(item => item.fecha);
+  const montosDep = datosDepositos.map(item => item.monto);
+
+  const fechasRet = datosRetiros.map(item => item.fecha);
+  const montosRet = datosRetiros.map(item => item.monto);
+
+  new Chart(document.getElementById("graficoDepositos"), {
+    type: "bar",
+    data: {
+      labels: fechasDep,
+      datasets: [{
+        label: "Depósitos",
+        data: montosDep,
+        backgroundColor: "rgba(37, 117, 252, 0.5)",
+        borderColor: "#2575fc",
+        borderWidth: 1
+      }]
+    },
+    options: {
+      responsive: true,
+      scales: { y: { beginAtZero: true } }
+    }
+  });
+
+  new Chart(document.getElementById("graficoRetiros"), {
+    type: "line",
+    data: {
+      labels: fechasRet,
+      datasets: [{
+        label: "Retiros",
+        data: montosRet,
+        fill: false,
+        borderColor: "#6a11cb",
+        tension: 0.3
+      }]
+    },
+    options: {
+      responsive: true,
+      scales: { y: { beginAtZero: true } }
+    }
+  });
+</script>
+
+</body>
+</html>
+
