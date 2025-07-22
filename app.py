@@ -366,13 +366,6 @@ def toggle_retiros():
     conn.close()
 
     return redirect('/admin_dashboard')
-# ---------------------- LOGOUT USUARIO ----------------------
-
-@app.route('/logout')
-def logout():
-    session.pop('usuario_id', None)
-    return redirect('/login')
-
 # ---------------------- LOGOUT ADMIN ----------------------
 
 @app.route('/admin_logout')
