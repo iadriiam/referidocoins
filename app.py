@@ -26,6 +26,7 @@ def get_db_connection():
 def init_db():
     with sqlite3.connect("database.db") as conn:
         c = conn.cursor()
+
         c.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,6 +80,17 @@ def init_db():
             retiros_habilitados INTEGER DEFAULT 1
         )
         """)
+
+        # Agregado para Render: tabla configuración y valor por defecto
+        c.execute("""
+        CREATE TABLE IF NOT EXISTS configuracion (
+            clave TEXT PRIMARY KEY,
+            valor TEXT
+        )
+        """)
+
+        c.execute("INSERT OR IGNORE INTO configuracion (clave, valor) VALUES ('retiros_habilitados', '1')")
+
 # ---------------------- UTILIDADES ----------------------
 
 def obtener_usuario(correo):
@@ -364,15 +376,11 @@ def toggle_retiros():
 def logout_usuario():
     session.pop('usuario', None)
     return redirect('/login')
-
-
 # ---------------------- LOGOUT ADMIN ----------------------
 @app.route('/admin_logout')
 def admin_logout():
     session.pop('admin', None)
     return redirect('/admin_login')
-
-
 # ---------------------- MAIN ----------------------
 if __name__ == "__main__":
     init_db()
