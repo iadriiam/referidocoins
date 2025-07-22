@@ -1,35 +1,61 @@
 <!DOCTYPE html>
 <html lang="es">
 <head>
-  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Dashboard - Referido Coins</title>
   <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css" rel="stylesheet" />
   <link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css" rel="stylesheet" />
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
   <style>
     body {
       background: linear-gradient(135deg, #f0f4ff 0%, #dbe9ff 100%);
       font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
       min-height: 100vh;
-      overflow-x: hidden;
     }
     .navbar {
       background: linear-gradient(90deg, #2575fc 0%, #6a11cb 100%);
+      padding: 1rem 2rem;
     }
     .navbar-brand, .btn-logout {
       color: white !important;
       font-weight: 600;
     }
-    .container {
+    .container-main {
+      display: flex;
+      flex-wrap: wrap;
       margin-top: 30px;
-      max-width: 960px;
+      gap: 20px;
+      padding: 0 1rem;
+    }
+    .sidebar {
+      flex: 1;
+      min-width: 180px;
+      max-width: 200px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .sidebar button {
+      text-align: left;
+      font-weight: 600;
+    }
+    .content {
+      flex: 3;
+      min-width: 300px;
+    }
+    .card {
+      border-radius: 14px;
+      box-shadow: 0 6px 18px rgba(0,0,0,0.08);
+      border: none;
+      margin-bottom: 30px;
     }
     .robot-img {
       position: fixed;
-      bottom: 20px;
-      right: 0;
-      width: 250px;
+      bottom: 10px;
+      right: 10px;
+      width: 180px;
+      z-index: 1;
       animation: float 3s ease-in-out infinite;
     }
     @keyframes float {
@@ -37,97 +63,55 @@
       50% { transform: translateY(-15px); }
       100% { transform: translateY(0); }
     }
-    .speech-bubble {
-      position: fixed;
-      bottom: 340px;
-      right: 60px;
-      background: white;
-      padding: 10px 20px;
-      border-radius: 20px;
-      font-weight: 600;
-      animation: fadeOut 6s forwards;
-    }
-    @keyframes fadeOut {
-      0%, 80% { opacity: 1; }
-      100% { opacity: 0; display: none; }
-    }
-    .card {
-      border-radius: 14px;
-      box-shadow: 0 6px 18px rgba(0,0,0,0.08);
-      border: none;
-    }
-    .card-title {
-      color: #2575fc;
-      font-weight: 700;
-    }
-    .btn-primary {
-      background-color: #2575fc;
-      border: none;
-      font-weight: 600;
-    }
-    .btn-primary:hover {
-      background-color: #1a52d1;
+    .boton-recompensa {
+      display: block;
+      margin: 30px auto;
+      font-size: 18px;
     }
     .seccion {
       display: none;
     }
-    .seccion.visible {
+    .mostrar {
       display: block;
     }
-    .cerrar-seccion {
+    .btn-x {
       float: right;
-      cursor: pointer;
       font-weight: bold;
-      color: #999;
-    }
-    .cerrar-seccion:hover {
-      color: #000;
+      color: red;
+      cursor: pointer;
     }
   </style>
 </head>
 <body>
 
 <!-- Navbar -->
-<nav class="navbar navbar-expand-lg px-4">
-  <a class="navbar-brand" href="#">Hola, {{ nombre_usuario }} 👋</a>
-  <div class="ms-auto">
+<nav class="navbar">
+  <div class="d-flex justify-content-between w-100">
+    <span class="navbar-brand">Hola, {{ nombre_usuario }} 👋</span>
     <a href="/logout" class="btn btn-outline-light btn-logout">Cerrar sesión</a>
   </div>
 </nav>
 
-<!-- Robot -->
-<img src="/static/dashboard_robot.png" alt="Referido Coins Robot" class="robot-img">
-<div class="speech-bubble">¡Listo para invertir!</div>
-
-<!-- Contenedor principal -->
-<div class="container">
-  <!-- Menú de navegación -->
-  <div class="mb-4">
-    <div class="d-flex flex-wrap gap-2 justify-content-center">
-      <button class="btn btn-outline-primary" onclick="mostrarSeccion('estadisticas')">📊 Estadísticas</button>
-      <button class="btn btn-outline-primary" onclick="mostrarSeccion('referido')">🔗 Código de referido</button>
-      <button class="btn btn-outline-primary" onclick="mostrarSeccion('depositar')">💰 Depositar</button>
-      <button class="btn btn-outline-primary" onclick="mostrarSeccion('retirar')">🏦 Solicitar Retiro</button>
-      <button class="btn btn-outline-primary" onclick="mostrarSeccion('historialDepositos')">📥 Historial de Depósitos</button>
-      <button class="btn btn-outline-primary" onclick="mostrarSeccion('historialRetiros')">📤 Historial de Retiros</button>
-    </div>
+<!-- Dashboard Layout -->
+<div class="container-main">
+  <!-- Menú lateral -->
+  <div class="sidebar">
+    <button class="btn btn-outline-primary" onclick="toggleSeccion('estadisticas')"><i class="fas fa-chart-bar me-2"></i>Estadísticas</button>
+    <button class="btn btn-outline-success" onclick="toggleSeccion('referido')"><i class="fas fa-gift me-2"></i>Referido</button>
+    <button class="btn btn-outline-info" onclick="toggleSeccion('deposito')"><i class="fas fa-coins me-2"></i>Depositar</button>
+    <button class="btn btn-outline-warning" onclick="toggleSeccion('retiro')"><i class="fas fa-atm me-2"></i>Retiro</button>
+    <button class="btn btn-outline-secondary" onclick="toggleSeccion('historialDepositos')"><i class="fas fa-file-invoice-dollar me-2"></i>Depósitos</button>
+    <button class="btn btn-outline-dark" onclick="toggleSeccion('historialRetiros')"><i class="fas fa-file-invoice me-2"></i>Retiros</button>
+    <a href="https://wa.me/184789988642" class="btn btn-success"><i class="fab fa-whatsapp me-2"></i>WhatsApp</a>
+    <a href="https://t.me/referidocoins" class="btn btn-primary"><i class="fab fa-telegram me-2"></i>Telegram</a>
   </div>
 
-  <!-- Contacto flotante -->
-  <div style="position: fixed; bottom: 20px; left: 20px; z-index: 1000;">
-    <a href="https://wa.me/4789988642" target="_blank" class="btn btn-success mb-2">
-      <i class="fab fa-whatsapp"></i> WhatsApp
-    </a><br>
-    <a href="https://t.me/tuusuario" target="_blank" class="btn btn-info text-white">
-      <i class="fab fa-telegram-plane"></i> Telegram
-    </a>
-  </div>
-
-  <!-- Sección fija: Saldo y Ganancias -->
-  <div class="row my-5 g-4">
-    <div class="col-md-6">
-      <div class="card p-4">
-        <h5 class="card-title">Saldo Disponible</h5>
+  <!-- Sección principal -->
+  <div class="content">
+    <!-- Sección de Saldo y Ganancias -->
+    <div class="d-flex justify-content-between flex-wrap mb-4">
+      <div class="card p-4 me-3" style="flex: 1 1 300px;">
+        <h5 class="card-title text-primary">Saldo Disponible</h5>
         {% if saldo_monedas %}
           <div class="mb-2">
             <label for="selectorMoneda" class="form-label">Selecciona moneda:</label>
@@ -149,143 +133,135 @@
           <p class="text-muted">No tienes saldo disponible aún.</p>
         {% endif %}
       </div>
-    </div>
-    <div class="col-md-6">
-      <div class="card p-4">
-        <h5 class="card-title">Total de Ganancias</h5>
+
+      <div class="card p-4" style="flex: 1 1 300px;">
+        <h5 class="card-title text-primary">Total de Ganancias</h5>
         <p id="bonos" class="fs-4 fw-semibold mb-0">${{ ganancias }}</p>
       </div>
     </div>
-  </div>
-<!-- Sección: Estadísticas de Actividad -->
-<div id="seccion-estadisticas" class="card p-4 mb-5 d-none">
-  <div class="d-flex justify-content-between">
-    <h5 class="card-title mb-3">📊 Estadísticas de Actividad</h5>
-    <button class="btn btn-sm btn-danger" onclick="cerrarSeccion('estadisticas')">❌</button>
-  </div>
-  <canvas id="graficoDepositos" class="mb-4" height="150"></canvas>
-  <canvas id="graficoRetiros" height="150"></canvas>
-</div>
 
-<!-- Sección: Código de Referido -->
-<div id="seccion-referido" class="card p-4 mb-5 d-none">
-  <div class="d-flex justify-content-between">
-    <h5 class="card-title mb-3">🔗 Tu Código de Referido</h5>
-    <button class="btn btn-sm btn-danger" onclick="cerrarSeccion('referido')">❌</button>
-  </div>
-  <input type="text" class="form-control text-center fw-bold" value="{{ codigo_referido }}" readonly>
-  <p class="mt-2">Total de referidos: <strong>{{ total_referidos }}</strong></p>
-</div>
-
-<!-- Sección: Depositar -->
-<div id="seccion-depositar" class="card p-4 mb-5 d-none">
-  <div class="d-flex justify-content-between">
-    <h5 class="card-title mb-3">💰 Depositar</h5>
-    <button class="btn btn-sm btn-danger" onclick="cerrarSeccion('depositar')">❌</button>
-  </div>
-  <form id="depositarForm" method="post" action="/depositar" novalidate>
-    <div class="mb-3">
-      <label for="montoDeposito" class="form-label">Monto a depositar</label>
-      <input type="number" class="form-control" id="montoDeposito" name="monto" min="1" step="0.01" placeholder="Ej: 100.00" required />
-    </div>
-    <div class="mb-3">
-      <label for="moneda" class="form-label">Método de depósito</label>
-      <select class="form-select" id="moneda" name="metodo" required>
-        <option value="">Selecciona método</option>
-        <option value="USDT">💲 USDT</option>
-        <option value="BTC">₿ Bitcoin</option>
-        <option value="reservas">🏦 Banco de Reservas</option>
-        <option value="popular">🏦 Banco Popular</option>
-      </select>
-    </div>
-    <div id="walletInfo" class="alert alert-info d-none"></div>
-    <button type="submit" class="btn btn-primary w-100">Depositar</button>
-    <p id="mensajeDeposito" class="mt-3" aria-live="polite"></p>
-  </form>
-</div>
-
-<!-- Sección: Solicitar Retiro -->
-<div id="seccion-retirar" class="card p-4 mb-5 d-none">
-  <div class="d-flex justify-content-between">
-    <h5 class="card-title mb-3">🏦 Solicitar Retiro</h5>
-    <button class="btn btn-sm btn-danger" onclick="cerrarSeccion('retirar')">❌</button>
-  </div>
-  <form id="retirarForm" method="post" action="/retirar" novalidate>
-    <div class="mb-3">
-      <label for="montoRetiro" class="form-label">Monto a Retirar (mínimo $10)</label>
-      <input type="number" class="form-control" id="montoRetiro" name="monto" min="10" step="0.01" required />
-    </div>
-    <button type="submit" class="btn btn-primary w-100">Solicitar Retiro</button>
-    <p id="mensajeRetiro" class="mt-3" aria-live="polite"></p>
-  </form>
-</div>
-<!-- Sección: Historial de Depósitos -->
-<div id="seccion-historial-depositos" class="card p-4 mb-5 d-none">
-  <div class="d-flex justify-content-between">
-    <h5 class="card-title mb-3">📥 Historial de Depósitos</h5>
-    <button class="btn btn-sm btn-danger" onclick="cerrarSeccion('historial-depositos')">❌</button>
-  </div>
-  {% if depositos %}
-    <ul class="list-group">
-      {% for dep in depositos %}
-        <li class="list-group-item d-flex justify-content-between align-items-center">
-          ${{ dep.monto }} - {{ dep.moneda }}
-          <span class="badge bg-primary rounded-pill">{{ dep.fecha }}</span>
-        </li>
-      {% endfor %}
-    </ul>
-  {% else %}
-    <p class="text-muted">Aún no has realizado depósitos.</p>
-  {% endif %}
-</div>
-
-<!-- Sección: Historial de Retiros -->
-<div id="seccion-historial-retiros" class="card p-4 mb-5 d-none">
-  <div class="d-flex justify-content-between">
-    <h5 class="card-title mb-3">📤 Historial de Retiros</h5>
-    <button class="btn btn-sm btn-danger" onclick="cerrarSeccion('historial-retiros')">❌</button>
-  </div>
-  {% if retiros %}
-    <ul class="list-group">
-      {% for retiro in retiros %}
-        <li class="list-group-item d-flex justify-content-between align-items-center">
-          ${{ retiro.monto }}
-          <span class="badge bg-primary rounded-pill">{{ retiro.fecha }}</span>
-        </li>
-      {% endfor %}
-    </ul>
-  {% else %}
-    <p class="text-muted">Aún no has realizado retiros.</p>
-  {% endif %}
-</div>
-
-<!-- Botón de Recompensa Diaria -->
-<div class="text-center my-5">
-  <form method="post" action="/recompensa">
-    <button id="btnRecompensa" class="btn btn-success btn-lg px-5 py-3">
+    <!-- Botón Recompensa Diaria -->
+    <button id="btnRecompensa" class="btn btn-success boton-recompensa">
       🎁 Recompensa Diaria
     </button>
-    <p id="mensajeRecompensa" class="mt-3 fw-semibold"></p>
-  </form>
-</div>
 
+    <!-- SECCIONES DINÁMICAS -->
+    <!-- Estadísticas -->
+    <div id="estadisticas" class="seccion card p-4">
+      <span class="btn-x" onclick="cerrarSeccion('estadisticas')">X</span>
+      <h5 class="card-title mb-3">Estadísticas de Actividad</h5>
+      <canvas id="graficoDepositos" class="mb-4" height="150"></canvas>
+      <canvas id="graficoRetiros" height="150"></canvas>
+    </div>
+
+    <!-- Código de referido -->
+    <div id="referido" class="seccion card p-4">
+      <span class="btn-x" onclick="cerrarSeccion('referido')">X</span>
+      <h5 class="card-title mb-3">Tu código de referido</h5>
+      <input type="text" class="form-control text-center fw-bold" value="{{ codigo_referido }}" readonly>
+      <p class="mt-2">Total de referidos: <strong>{{ total_referidos }}</strong></p>
+    </div>
+
+    <!-- Formulario de Depósito -->
+    <div id="deposito" class="seccion card p-4">
+      <span class="btn-x" onclick="cerrarSeccion('deposito')">X</span>
+      <h5 class="card-title mb-3">Depositar</h5>
+      <form id="depositarForm" novalidate>
+        <div class="mb-3">
+          <label for="montoDeposito" class="form-label">Monto a depositar</label>
+          <input type="number" class="form-control" id="montoDeposito" min="1" step="0.01" required />
+        </div>
+        <div class="mb-3">
+          <label for="moneda" class="form-label">Método de depósito</label>
+          <select class="form-select" id="moneda" required>
+            <option value="">Selecciona método</option>
+            <option value="USDT">💲 USDT</option>
+            <option value="BTC">₿ Bitcoin</option>
+            <option value="reservas">🏦 Banco de Reservas</option>
+            <option value="popular">🏦 Banco Popular</option>
+          </select>
+        </div>
+        <div id="walletInfo" class="alert alert-info d-none"></div>
+        <button type="submit" class="btn btn-primary w-100">Depositar</button>
+        <p id="mensajeDeposito" class="mt-3" aria-live="polite"></p>
+      </form>
+    </div>
+    <!-- Formulario de Retiro -->
+    <div id="retiro" class="seccion card p-4">
+      <span class="btn-x" onclick="cerrarSeccion('retiro')">X</span>
+      <h5 class="card-title mb-3">Solicitar Retiro</h5>
+      <form id="retirarForm" novalidate>
+        <div class="mb-3">
+          <label for="montoRetiro" class="form-label">Monto a Retirar (mínimo $10)</label>
+          <input type="number" class="form-control" id="montoRetiro" min="10" step="0.01" required />
+        </div>
+        <button type="submit" class="btn btn-primary w-100">Solicitar Retiro</button>
+        <p id="mensajeRetiro" class="mt-3" aria-live="polite"></p>
+      </form>
+    </div>
+
+    <!-- Historial de Depósitos -->
+    <div id="historialDepositos" class="seccion card p-4">
+      <span class="btn-x" onclick="cerrarSeccion('historialDepositos')">X</span>
+      <h5 class="card-title mb-3">Historial de Depósitos</h5>
+      {% if depositos %}
+        <ul class="list-group">
+          {% for dep in depositos %}
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+              ${{ dep.monto }} - {{ dep.moneda }}
+              <span class="badge bg-primary rounded-pill">{{ dep.fecha }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="text-muted">Aún no has realizado depósitos.</p>
+      {% endif %}
+    </div>
+
+    <!-- Historial de Retiros -->
+    <div id="historialRetiros" class="seccion card p-4">
+      <span class="btn-x" onclick="cerrarSeccion('historialRetiros')">X</span>
+      <h5 class="card-title mb-3">Historial de Retiros</h5>
+      {% if retiros %}
+        <ul class="list-group">
+          {% for retiro in retiros %}
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+              ${{ retiro.monto }}
+              <span class="badge bg-primary rounded-pill">{{ retiro.fecha }}</span>
+            </li>
+          {% endfor %}
+        </ul>
+      {% else %}
+        <p class="text-muted">Aún no has realizado retiros.</p>
+      {% endif %}
+    </div>
+
+    <!-- Contacto -->
+    <div class="d-flex justify-content-center gap-3 mt-4 flex-wrap">
+      <a href="https://wa.me/4789988642" target="_blank" class="btn btn-success">📱 WhatsApp</a>
+      <a href="https://t.me/tu_usuario" target="_blank" class="btn btn-info text-white">💬 Telegram</a>
+    </div>
+
+    <img src="/static/dashboard_robot.png" alt="Referido Coins Robot" class="robot-img">
+    <div class="speech-bubble">¡Listo para invertir!</div>
+  </div> <!-- Cierre container -->
 <!-- Scripts -->
 <script>
-  // Mostrar/Ocultar secciones del menú
-  function mostrarSeccion(seccion) {
-    document.getElementById("seccion-" + seccion).classList.remove("d-none");
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+  // Mostrar secciones al hacer clic
+  function mostrarSeccion(id) {
+    document.getElementById(id).style.display = "block";
+    document.getElementById(id).scrollIntoView({ behavior: "smooth" });
   }
 
-  function cerrarSeccion(seccion) {
-    document.getElementById("seccion-" + seccion).classList.add("d-none");
+  function cerrarSeccion(id) {
+    document.getElementById(id).style.display = "none";
   }
 
-  // Información dinámica del depósito
+  // Mostrar datos bancarios y wallet
   const walletInfo = document.getElementById("walletInfo");
   const metodo = document.getElementById("moneda");
 
-  metodo.addEventListener("change", function () {
+  metodo?.addEventListener("change", function () {
     const valor = metodo.value;
     walletInfo.classList.remove("d-none");
 
@@ -330,8 +306,9 @@
       valorMoneda.textContent = "$" + (saldosPorMoneda[seleccionada] || "0.00");
     });
   }
-
-  // Gráficos de actividad
+</script>
+<script>
+  // 📊 Gráficos de actividad
   const datosDepositos = {{ depositos_json | safe }};
   const datosRetiros = {{ retiros_json | safe }};
 
@@ -353,7 +330,10 @@
         borderWidth: 1
       }]
     },
-    options: { responsive: true, scales: { y: { beginAtZero: true } } }
+    options: {
+      responsive: true,
+      scales: { y: { beginAtZero: true } }
+    }
   });
 
   new Chart(document.getElementById("graficoRetiros"), {
@@ -368,24 +348,95 @@
         tension: 0.3
       }]
     },
-    options: { responsive: true, scales: { y: { beginAtZero: true } } }
+    options: {
+      responsive: true,
+      scales: { y: { beginAtZero: true } }
+    }
+  });
+
+  // Enviar solicitud de depósito
+  document.getElementById("depositarForm")?.addEventListener("submit", async function (e) {
+    e.preventDefault();
+    const monto = document.getElementById("montoDeposito").value;
+    const moneda = document.getElementById("moneda").value;
+    const mensaje = document.getElementById("mensajeDeposito");
+
+    if (!monto || !moneda) {
+      mensaje.textContent = "Completa todos los campos.";
+      return;
+    }
+
+    const response = await fetch("/depositar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ monto: monto, moneda: moneda })
+    });
+
+    const resultado = await response.json();
+    mensaje.textContent = resultado.mensaje || "Solicitud enviada.";
+    this.reset();
+    walletInfo.classList.add("d-none");
+  });
+
+  // Enviar solicitud de retiro
+  document.getElementById("retirarForm")?.addEventListener("submit", async function (e) {
+    e.preventDefault();
+    const monto = document.getElementById("montoRetiro").value;
+    const mensaje = document.getElementById("mensajeRetiro");
+
+    if (!monto || parseFloat(monto) < 10) {
+      mensaje.textContent = "El monto mínimo es $10.";
+      return;
+    }
+
+    const response = await fetch("/retirar", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ monto: monto })
+    });
+
+    const resultado = await response.json();
+    mensaje.textContent = resultado.mensaje || "Solicitud enviada.";
+    this.reset();
   });
 </script>
-<!-- Menú Flotante (Botones laterales) -->
-<div style="position: fixed; top: 50%; left: 10px; transform: translateY(-50%); z-index: 999;">
-  <div class="d-flex flex-column gap-2">
-    <button class="btn btn-outline-primary" onclick="mostrarSeccion('actividad')">📊 Estadísticas</button>
-    <button class="btn btn-outline-success" onclick="mostrarSeccion('referido')">🎁 Referido</button>
-    <button class="btn btn-outline-info" onclick="mostrarSeccion('deposito')">💰 Depositar</button>
-    <button class="btn btn-outline-warning" onclick="mostrarSeccion('retiro')">🏧 Retiro</button>
-    <button class="btn btn-outline-dark" onclick="mostrarSeccion('historial-depositos')">📥 Depósitos</button>
-    <button class="btn btn-outline-dark" onclick="mostrarSeccion('historial-retiros')">📤 Retiros</button>
-    <a href="https://wa.me/184789988642" class="btn btn-success" target="_blank">📱 WhatsApp</a>
-    <a href="https://t.me/tuusuario" class="btn btn-primary" target="_blank">📨 Telegram</a>
-  </div>
+<!-- Botón de Recompensa Diaria -->
+<div class="text-center my-5">
+  <button id="btnRecompensa" class="btn btn-success btn-lg px-5">🎁 Recompensa Diaria</button>
+  <p id="mensajeRecompensa" class="mt-3 fw-semibold text-success"></p>
 </div>
 
-<!-- Robot flotante animado -->
-<img src="/static/dashboard_robot.png" alt="Referido Coins Robot" class="robot-img">
-<div class="speech-bubble">¡Listo para invertir!</div>
+<script>
+  const btnRecompensa = document.getElementById("btnRecompensa");
+  const mensajeRecompensa = document.getElementById("mensajeRecompensa");
+
+  // Verifica si ya se reclamó recompensa hoy
+  const ultimaRecompensa = localStorage.getItem("ultimaRecompensa");
+  if (ultimaRecompensa) {
+    const ahora = new Date();
+    const ultima = new Date(parseInt(ultimaRecompensa));
+    const diferencia = ahora - ultima;
+    const horasPasadas = diferencia / (1000 * 60 * 60);
+    if (horasPasadas < 24) {
+      btnRecompensa.disabled = true;
+      mensajeRecompensa.textContent = "Ya reclamaste tu recompensa diaria. Inténtalo más tarde.";
+    }
+  }
+
+  btnRecompensa.addEventListener("click", async () => {
+    const response = await fetch("/recompensa", { method: "POST" });
+    const data = await response.json();
+
+    if (data.exito) {
+      mensajeRecompensa.textContent = "Has recibido el 3% de tu inversión 🎉";
+      btnRecompensa.disabled = true;
+      localStorage.setItem("ultimaRecompensa", Date.now());
+    } else {
+      mensajeRecompensa.textContent = data.mensaje || "No se pudo otorgar la recompensa.";
+    }
+  });
+</script>
+
+</body>
+</html>
 
