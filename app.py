@@ -1,31 +1,39 @@
-from flask import Flask, request, jsonify, render_template, redirect, url_for, session
-import sqlite3
+from flask import Flask, render_template, request, redirect, session, url_for, jsonify
+from flask_mail import Mail, Message
 from werkzeug.security import generate_password_hash, check_password_hash
+import sqlite3
 from datetime import datetime, timedelta
-import random
-import string
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-import json
+import os
 
 app = Flask(__name__)
-app.secret_key = 'clave_secreta_segura'
-DATABASE = 'database.db'
+app.secret_key = 'tu_clave_secreta'
 
-# ------------------------ INICIALIZAR DB ------------------------
+# Configuración del correo
+app.config['MAIL_SERVER'] = 'smtp.gmail.com'
+app.config['MAIL_PORT'] = 587
+app.config['MAIL_USE_TLS'] = True
+app.config['MAIL_USERNAME'] = 'tucorreo@gmail.com'
+app.config['MAIL_PASSWORD'] = 'tu_contraseña'
+mail = Mail(app)
+
+# ---------------------- BASE DE DATOS ----------------------
+
+def get_db_connection():
+    conn = sqlite3.connect('database.db')
+    conn.row_factory = sqlite3.Row
+    return conn
+
 def init_db():
-    conn = sqlite3.connect(DATABASE)
-    c = conn.cursor()
-
-    c.execute("""
+    with sqlite3.connect("database.db") as conn:
+        c = conn.cursor()
+        c.execute("""
         CREATE TABLE IF NOT EXISTS usuarios (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             nombre TEXT NOT NULL,
             correo TEXT NOT NULL UNIQUE,
             contrasena TEXT NOT NULL,
-            red TEXT NOT NULL,
-            wallet TEXT NOT NULL,
+            red TEXT,
+            wallet TEXT,
             referido TEXT,
             saldo REAL DEFAULT 0,
             bonos REAL DEFAULT 0,
@@ -34,106 +42,61 @@ def init_db():
             referido_por INTEGER,
             ultima_recompensa TEXT
         )
-    """)
+        """)
 
-    c.execute("""
+        c.execute("""
         CREATE TABLE IF NOT EXISTS depositos (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             usuario_id INTEGER,
             monto REAL,
             moneda TEXT,
-            fecha TEXT,
-            aprobado INTEGER DEFAULT 0,
-            tipo_moneda_real TEXT
+            estado TEXT,
+            fecha TEXT
         )
-    """)
+        """)
 
-    c.execute("""
+        c.execute("""
         CREATE TABLE IF NOT EXISTS retiros (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             usuario_id INTEGER,
             monto REAL,
-            fecha TEXT,
-            procesado INTEGER DEFAULT 0
+            estado TEXT,
+            fecha TEXT
         )
-    """)
+        """)
 
-    c.execute("""
+        c.execute("""
         CREATE TABLE IF NOT EXISTS admin (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            usuario TEXT NOT NULL,
-            contrasena TEXT NOT NULL
+            usuario TEXT,
+            contrasena TEXT
         )
-    """)
+        """)
 
-    c.execute("""
+        c.execute("""
         CREATE TABLE IF NOT EXISTS control (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            retiros_habilitados INTEGER DEFAULT 0
+            retiros_habilitados INTEGER DEFAULT 1
         )
-    """)
+        """)
+# ---------------------- UTILIDADES ----------------------
 
-    conn.commit()
-    conn.close()
-# ------------------------ UTILIDADES ------------------------
-def get_db_connection():
-    conn = sqlite3.connect(DATABASE)
-    conn.row_factory = sqlite3.Row
-    return conn
-
-def obtener_usuario_por_correo(correo):
+def obtener_usuario(correo):
     conn = get_db_connection()
-    user = conn.execute('SELECT * FROM usuarios WHERE correo = ?', (correo,)).fetchone()
+    user = conn.execute("SELECT * FROM usuarios WHERE correo = ?", (correo,)).fetchone()
     conn.close()
     return user
 
-def obtener_usuario_por_id(user_id):
+def obtener_saldo_por_moneda(usuario_id):
     conn = get_db_connection()
-    user = conn.execute('SELECT * FROM usuarios WHERE id = ?', (user_id,)).fetchone()
+    depositos = conn.execute("SELECT moneda, SUM(monto) as total FROM depositos WHERE usuario_id = ? AND estado = 'Aprobado' GROUP BY moneda", (usuario_id,)).fetchall()
     conn.close()
-    return user
-
-def calcular_saldo_por_moneda(usuario_id):
-    conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("""
-        SELECT tipo_moneda_real, SUM(monto) 
-        FROM depositos 
-        WHERE usuario_id = ? AND aprobado = 1 
-        GROUP BY tipo_moneda_real
-    """, (usuario_id,))
-    resultados = cursor.fetchall()
-    saldos = {fila[0]: round(fila[1], 2) for fila in resultados if fila[0] is not None}
-    conn.close()
+    saldos = {}
+    for fila in depositos:
+        saldos[fila["moneda"]] = round(fila["total"], 2)
     return saldos
 
-def enviar_correo(destinatario, asunto, cuerpo):
-    remitente = "referidocoins@gmail.com"
-    password = "xxxxxxxx"  # Reemplaza con tu contraseña de aplicación
-
-    msg = MIMEMultipart()
-    msg['From'] = remitente
-    msg['To'] = destinatario
-    msg['Subject'] = asunto
-
-    msg.attach(MIMEText(cuerpo, 'plain'))
-
-    try:
-        server = smtplib.SMTP('smtp.gmail.com', 587)
-        server.starttls()
-        server.login(remitente, password)
-        texto = msg.as_string()
-        server.sendmail(remitente, destinatario, texto)
-        server.quit()
-        return True
-    except Exception as e:
-        print(f"Error al enviar correo: {e}")
-        return False
-# ------------------------ RUTAS DE USUARIO ------------------------
-
-@app.route('/')
-def index():
-    return redirect(url_for('login'))
+# ---------------------- REGISTRO ----------------------
 
 @app.route('/registro', methods=['GET', 'POST'])
 def registro():
@@ -148,229 +111,190 @@ def registro():
         conn = get_db_connection()
         cursor = conn.cursor()
 
-        # Verificar si ya existe
-        existente = cursor.execute("SELECT * FROM usuarios WHERE correo = ?", (correo,)).fetchone()
-        if existente:
-            conn.close()
-            return "El correo ya está registrado."
+        codigo_referido = nombre[:3].upper() + str(datetime.now().timestamp()).replace('.', '')[-4:]
 
-        codigo_referido = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
         referido_por = None
-
         if referido:
-            referido_user = cursor.execute("SELECT id FROM usuarios WHERE codigo_referido = ?", (referido,)).fetchone()
-            if referido_user:
-                referido_por = referido_user['id']
+            ref = cursor.execute("SELECT id FROM usuarios WHERE codigo_referido = ?", (referido,)).fetchone()
+            if ref:
+                referido_por = ref["id"]
 
-        cursor.execute("""
-            INSERT INTO usuarios (nombre, correo, contrasena, red, wallet, referido, codigo_referido, referido_por)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-        """, (nombre, correo, contrasena, red, wallet, referido, codigo_referido, referido_por))
+        cursor.execute("""INSERT INTO usuarios (nombre, correo, contrasena, red, wallet, referido, codigo_referido, referido_por)
+                          VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                          (nombre, correo, contrasena, red, wallet, referido, codigo_referido, referido_por))
 
         conn.commit()
         conn.close()
-        return redirect(url_for('login'))
+        return redirect('/login')
 
     return render_template('registro.html')
-
+# ---------------------- LOGIN ----------------------
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
         correo = request.form['correo']
         contrasena = request.form['contrasena']
-        user = obtener_usuario_por_correo(correo)
 
-        if user and check_password_hash(user['contrasena'], contrasena):
-            session['usuario_id'] = user['id']
-            return redirect(url_for('dashboard'))
+        user = obtener_usuario(correo)
+
+        if user and check_password_hash(user["contrasena"], contrasena):
+            session['usuario'] = user["id"]
+            return redirect('/dashboard')
         else:
-            return "Credenciales inválidas"
+            return render_template('login.html', error='Correo o contraseña incorrectos.')
 
     return render_template('login.html')
 
+# ---------------------- LOGOUT ----------------------
 
-@app.route('/logout', endpoint='logout')
-def logout_usuario():
-    session.pop('usuario_id', None)
-    return redirect(url_for('login'))
+@app.route('/logout')
+def logout():
+    session.pop('usuario', None)
+    return redirect('/login')
+
+# ---------------------- DASHBOARD ----------------------
 
 @app.route('/dashboard')
 def dashboard():
-    if 'usuario_id' not in session:
-        return redirect(url_for('login'))
+    if 'usuario' not in session:
+        return redirect('/login')
 
-    usuario_id = session['usuario_id']
+    usuario_id = session['usuario']
     conn = get_db_connection()
-    cursor = conn.cursor()
+    user = conn.execute("SELECT * FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
 
-    # Datos del usuario
-    user = cursor.execute("SELECT * FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
+    depositos = conn.execute("SELECT monto, moneda, fecha FROM depositos WHERE usuario_id = ? AND estado = 'Aprobado'", (usuario_id,)).fetchall()
+    retiros = conn.execute("SELECT monto, fecha FROM retiros WHERE usuario_id = ? AND estado = 'Procesado'", (usuario_id,)).fetchall()
 
-    # Saldos por tipo de moneda
-    saldo_monedas = cursor.execute("""
-        SELECT tipo_moneda_real, SUM(monto) as total
-        FROM depositos
-        WHERE usuario_id = ? AND aprobado = 1
-        GROUP BY tipo_moneda_real
-    """, (usuario_id,)).fetchall()
+    total_referidos = conn.execute("SELECT COUNT(*) as total FROM usuarios WHERE referido_por = ?", (usuario_id,)).fetchone()["total"]
 
-    saldo_monedas_dict = {fila['tipo_moneda_real']: round(fila['total'], 2) for fila in saldo_monedas}
+    depositos_json = [{"fecha": d["fecha"], "monto": float(d["monto"])} for d in depositos]
+    retiros_json = [{"fecha": r["fecha"], "monto": float(r["monto"])} for r in retiros]
 
-    # Ganancias (bonos)
-    ganancias = round(user['bonos'], 2)
-
-    # Referidos
-    total_referidos = cursor.execute("SELECT COUNT(*) FROM usuarios WHERE referido_por = ?", (usuario_id,)).fetchone()[0]
-
-    # Depósitos aprobados para historial y gráficos
-    depositos = cursor.execute("""
-        SELECT monto, tipo_moneda_real AS moneda, fecha
-        FROM depositos
-        WHERE usuario_id = ? AND aprobado = 1
-        ORDER BY fecha DESC
-    """, (usuario_id,)).fetchall()
-
-    depositos_json = [{'monto': dep['monto'], 'fecha': dep['fecha']} for dep in depositos]
-
-    # Retiros aprobados
-    retiros = cursor.execute("""
-        SELECT monto, fecha
-        FROM retiros
-        WHERE usuario_id = ? AND procesado = 1
-        ORDER BY fecha DESC
-    """, (usuario_id,)).fetchall()
-
-    retiros_json = [{'monto': ret['monto'], 'fecha': ret['fecha']} for ret in retiros]
+    saldo_monedas = obtener_saldo_por_moneda(usuario_id)
 
     conn.close()
 
-    return render_template('dashboard.html',
-                           nombre_usuario=user['nombre'],
-                           codigo_referido=user['codigo_referido'],
-                           saldo_monedas=saldo_monedas_dict,
-                           ganancias=ganancias,
+    return render_template("dashboard.html",
+                           nombre_usuario=user["nombre"],
+                           codigo_referido=user["codigo_referido"],
                            total_referidos=total_referidos,
+                           saldo_monedas=saldo_monedas,
+                           ganancias=round(user["bonos"], 2),
                            depositos=depositos,
-                           depositos_json=depositos_json,
                            retiros=retiros,
+                           depositos_json=depositos_json,
                            retiros_json=retiros_json)
+# ---------------------- DEPOSITAR ----------------------
+
 @app.route('/depositar', methods=['POST'])
 def depositar():
-    if 'usuario_id' not in session:
-        return jsonify({'success': False, 'mensaje': 'No has iniciado sesión'})
+    if 'usuario' not in session:
+        return jsonify({'mensaje': 'No autenticado'}), 401
 
-    usuario_id = session['usuario_id']
-    datos = request.get_json()
-    monto = datos.get('monto')
-    metodo = datos.get('metodo')
+    data = request.json
+    monto = float(data.get('monto', 0))
+    metodo = data.get('metodo', '')
 
-    if not monto or not metodo:
-        return jsonify({'success': False, 'mensaje': 'Faltan datos del depósito'})
+    if monto <= 0 or not metodo:
+        return jsonify({'mensaje': 'Faltan datos del depósito'}), 400
 
+    usuario_id = session['usuario']
     fecha = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+
     conn = get_db_connection()
-    cursor = conn.cursor()
-
-    cursor.execute("""
-        INSERT INTO depositos (usuario_id, monto, tipo_moneda_real, fecha, aprobado)
-        VALUES (?, ?, ?, ?, 0)
-    """, (usuario_id, monto, metodo, fecha))
-
+    conn.execute("INSERT INTO depositos (usuario_id, monto, moneda, estado, fecha) VALUES (?, ?, ?, ?, ?)",
+                 (usuario_id, monto, metodo, 'Pendiente', fecha))
     conn.commit()
     conn.close()
 
-    return jsonify({'success': True, 'mensaje': 'Depósito registrado correctamente. Será verificado en breve.'})
+    return jsonify({'mensaje': 'Depósito registrado con éxito. Será acreditado en 24 horas.'})
 
+# ---------------------- RETIRAR ----------------------
 
 @app.route('/retirar', methods=['POST'])
 def retirar():
-    if 'usuario_id' not in session:
-        return jsonify({'success': False, 'mensaje': 'No has iniciado sesión'})
+    if 'usuario' not in session:
+        return jsonify({'mensaje': 'No autenticado'}), 401
 
-    usuario_id = session['usuario_id']
-    datos = request.get_json()
-    monto = datos.get('monto')
+    data = request.json
+    monto = float(data.get('monto', 0))
 
-    if not monto:
-        return jsonify({'success': False, 'mensaje': 'Faltan datos del retiro'})
+    if monto < 10:
+        return jsonify({'mensaje': 'El monto mínimo de retiro es $10'}), 400
 
-    if float(monto) < 10:
-        return jsonify({'success': False, 'mensaje': 'El monto mínimo de retiro es $10'})
+    usuario_id = session['usuario']
+    conn = get_db_connection()
+
+    usuario = conn.execute("SELECT bonos FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
+    bonos = usuario["bonos"]
+
+    retiros_habilitados = conn.execute("SELECT valor FROM configuracion WHERE clave = 'retiros_habilitados'").fetchone()
+    if not retiros_habilitados or retiros_habilitados["valor"] != '1':
+        conn.close()
+        return jsonify({'mensaje': 'Los retiros no están habilitados por el administrador.'}), 403
+
+    if monto > bonos:
+        conn.close()
+        return jsonify({'mensaje': 'No tienes suficientes ganancias para retirar'}), 400
 
     fecha = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    usuario = cursor.execute("SELECT bonos FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
-    if not usuario or usuario['bonos'] < float(monto):
-        conn.close()
-        return jsonify({'success': False, 'mensaje': 'No tienes suficientes ganancias disponibles'})
-
-    # Descontar de bonos
-    cursor.execute("UPDATE usuarios SET bonos = bonos - ? WHERE id = ?", (monto, usuario_id))
-
-    # Insertar solicitud de retiro
-    cursor.execute("""
-        INSERT INTO retiros (usuario_id, monto, fecha, procesado)
-        VALUES (?, ?, ?, 0)
-    """, (usuario_id, monto, fecha))
-
+    conn.execute("INSERT INTO retiros (usuario_id, monto, estado, fecha) VALUES (?, ?, ?, ?)",
+                 (usuario_id, monto, 'Pendiente', fecha))
     conn.commit()
     conn.close()
 
-    return jsonify({'success': True, 'mensaje': 'Solicitud de retiro enviada. Será revisada en breve.'})
+    return jsonify({'mensaje': 'Solicitud de retiro enviada. Será procesada en breve.'})
 
+# ---------------------- RECOMPENSA DIARIA ----------------------
 
-@app.route('/recompensa_diaria', methods=['POST'])
+@app.route('/recompensa', methods=['POST'])
 def recompensa_diaria():
-    if 'usuario_id' not in session:
-        return jsonify({'success': False, 'mensaje': 'No has iniciado sesión'})
+    if 'usuario' not in session:
+        return jsonify({'mensaje': 'No autenticado'}), 401
 
-    usuario_id = session['usuario_id']
+    usuario_id = session['usuario']
+    conn = get_db_connection()
+
+    ultima = conn.execute("SELECT fecha FROM recompensas WHERE usuario_id = ? ORDER BY fecha DESC LIMIT 1", (usuario_id,)).fetchone()
     ahora = datetime.now()
 
-    conn = get_db_connection()
-    cursor = conn.cursor()
-
-    ultima_fecha = cursor.execute("""
-        SELECT ultima_recompensa FROM usuarios WHERE id = ?
-    """, (usuario_id,)).fetchone()
-
-    if ultima_fecha and ultima_fecha['ultima_recompensa']:
-        ultima = datetime.strptime(ultima_fecha['ultima_recompensa'], '%Y-%m-%d %H:%M:%S')
-        if (ahora - ultima).total_seconds() < 86400:
+    if ultima:
+        ultima_fecha = datetime.strptime(ultima["fecha"], '%Y-%m-%d %H:%M:%S')
+        diferencia = ahora - ultima_fecha
+        if diferencia.total_seconds() < 86400:
+            restante = int((86400 - diferencia.total_seconds()) // 3600)
             conn.close()
-            return jsonify({'success': False, 'mensaje': 'Debes esperar 24 horas para reclamar nuevamente'})
+            return jsonify({'mensaje': f'Espera {restante}h para reclamar tu recompensa.'}), 400
 
-    # Calcular recompensa: 3% de inversión aprobada
-    total_inversion = cursor.execute("""
-        SELECT SUM(monto) as total FROM depositos WHERE usuario_id = ? AND aprobado = 1
-    """, (usuario_id,)).fetchone()['total'] or 0
+    user = conn.execute("SELECT fondos_depositados FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
+    inversion = user["fondos_depositados"]
+    recompensa = round(inversion * 0.03, 2)
 
-    recompensa = round(total_inversion * 0.03, 2)
-
-    cursor.execute("UPDATE usuarios SET bonos = bonos + ?, ultima_recompensa = ? WHERE id = ?",
-                   (recompensa, ahora.strftime('%Y-%m-%d %H:%M:%S'), usuario_id))
-
+    conn.execute("UPDATE usuarios SET saldo = saldo + ?, bonos = bonos + ? WHERE id = ?", (recompensa, recompensa, usuario_id))
+    conn.execute("INSERT INTO recompensas (usuario_id, fecha) VALUES (?, ?)", (usuario_id, ahora.strftime('%Y-%m-%d %H:%M:%S')))
     conn.commit()
     conn.close()
 
-    return jsonify({'success': True, 'mensaje': f'Recompensa de ${recompensa} acreditada correctamente'})
-# ---------------- PANEL DE ADMINISTRACIÓN ----------------
+    return jsonify({'mensaje': f'¡Has recibido ${recompensa} como recompensa diaria!'})
+# ---------------------- LOGIN ADMIN ----------------------
 
 @app.route('/admin_login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
         correo = request.form['correo']
         contrasena = request.form['contrasena']
+
         if correo == 'admin@admin.com' and contrasena == 'admin123':
             session['admin'] = True
             return redirect('/admin_dashboard')
         else:
-            return render_template('admin_login.html', mensaje='Credenciales inválidas')
+            return render_template('admin_login.html', error='Credenciales inválidas')
+
     return render_template('admin_login.html')
 
+# ---------------------- DASHBOARD ADMIN ----------------------
 
 @app.route('/admin_dashboard')
 def admin_dashboard():
@@ -378,99 +302,88 @@ def admin_dashboard():
         return redirect('/admin_login')
 
     conn = get_db_connection()
-    cursor = conn.cursor()
-
-    # Depósitos pendientes
-    depositos = cursor.execute("""
-        SELECT d.*, u.nombre FROM depositos d
-        JOIN usuarios u ON d.usuario_id = u.id
-        WHERE d.aprobado = 0
-    """).fetchall()
-
-    # Retiros pendientes
-    retiros = cursor.execute("""
-        SELECT r.*, u.nombre FROM retiros r
-        JOIN usuarios u ON r.usuario_id = u.id
-        WHERE r.procesado = 0
-    """).fetchall()
-
-    # Ver estado de retiros habilitados
-    estado = cursor.execute("SELECT valor FROM configuracion WHERE clave = 'retiros_habilitados'").fetchone()
-    habilitados = estado['valor'] == '1' if estado else False
-
+    depositos = conn.execute("SELECT d.id, u.nombre, d.monto, d.moneda, d.estado, d.fecha FROM depositos d JOIN usuarios u ON d.usuario_id = u.id WHERE d.estado = 'Pendiente'").fetchall()
+    retiros = conn.execute("SELECT r.id, u.nombre, r.monto, r.estado, r.fecha FROM retiros r JOIN usuarios u ON r.usuario_id = u.id WHERE r.estado = 'Pendiente'").fetchall()
+    retiros_habilitados = conn.execute("SELECT valor FROM configuracion WHERE clave = 'retiros_habilitados'").fetchone()
     conn.close()
-    return render_template('admin_dashboard.html', depositos=depositos, retiros=retiros, habilitados=habilitados)
 
+    return render_template('admin_dashboard.html', depositos=depositos, retiros=retiros, retiros_habilitados=retiros_habilitados["valor"] == '1')
 
-@app.route('/aprobar_deposito/<int:id>', methods=['POST'])
-def aprobar_deposito(id):
+# ---------------------- CONFIRMAR DEPÓSITO ----------------------
+
+@app.route('/confirmar_deposito/<int:deposito_id>', methods=['POST'])
+def confirmar_deposito(deposito_id):
     if not session.get('admin'):
         return redirect('/admin_login')
 
-    moneda = request.form.get('tipo_moneda_real')
-    if not moneda:
-        return 'Falta seleccionar tipo de moneda', 400
+    tipo_moneda_real = request.form.get('tipo_moneda_real')
 
     conn = get_db_connection()
-    cursor = conn.cursor()
+    deposito = conn.execute("SELECT usuario_id, monto FROM depositos WHERE id = ?", (deposito_id,)).fetchone()
 
-    deposito = cursor.execute("SELECT * FROM depositos WHERE id = ?", (id,)).fetchone()
-    if not deposito:
-        conn.close()
-        return 'Depósito no encontrado', 404
+    if deposito:
+        conn.execute("UPDATE depositos SET estado = 'Aprobado' WHERE id = ?", (deposito_id,))
+        conn.execute("UPDATE usuarios SET saldo = saldo + ?, fondos_depositados = fondos_depositados + ? WHERE id = ?",
+                     (deposito["monto"], deposito["monto"], deposito["usuario_id"]))
+        conn.execute("INSERT INTO saldos_monedas (usuario_id, moneda, cantidad) VALUES (?, ?, ?) ON CONFLICT(usuario_id, moneda) DO UPDATE SET cantidad = cantidad + ?",
+                     (deposito["usuario_id"], tipo_moneda_real, deposito["monto"], deposito["monto"]))
+        conn.commit()
 
-    cursor.execute("UPDATE depositos SET aprobado = 1, tipo_moneda_real = ? WHERE id = ?", (moneda, id))
-    cursor.execute("UPDATE usuarios SET saldo = saldo + ?, fondos_depositados = fondos_depositados + ? WHERE id = ?",
-                   (deposito['monto'], deposito['monto'], deposito['usuario_id']))
-    conn.commit()
     conn.close()
-
     return redirect('/admin_dashboard')
 
+# ---------------------- CONFIRMAR RETIRO ----------------------
 
-@app.route('/procesar_retiro/<int:id>', methods=['POST'])
-def procesar_retiro(id):
+@app.route('/confirmar_retiro/<int:retiro_id>', methods=['POST'])
+def confirmar_retiro(retiro_id):
     if not session.get('admin'):
         return redirect('/admin_login')
 
     conn = get_db_connection()
-    cursor = conn.cursor()
-    cursor.execute("UPDATE retiros SET procesado = 1 WHERE id = ?", (id,))
-    conn.commit()
-    conn.close()
+    retiro = conn.execute("SELECT usuario_id, monto FROM retiros WHERE id = ?", (retiro_id,)).fetchone()
 
+    if retiro:
+        conn.execute("UPDATE retiros SET estado = 'Procesado' WHERE id = ?", (retiro_id,))
+        conn.execute("UPDATE usuarios SET bonos = bonos - ? WHERE id = ?", (retiro["monto"], retiro["usuario_id"]))
+        conn.commit()
+
+    conn.close()
     return redirect('/admin_dashboard')
 
+# ---------------------- TOGGLE RETIROS ----------------------
 
 @app.route('/toggle_retiros', methods=['POST'])
 def toggle_retiros():
     if not session.get('admin'):
         return redirect('/admin_login')
 
+    estado_actual = request.form.get('estado')
+    nuevo_estado = '1' if estado_actual == '0' else '0'
+
     conn = get_db_connection()
-    cursor = conn.cursor()
-
-    estado = cursor.execute("SELECT valor FROM configuracion WHERE clave = 'retiros_habilitados'").fetchone()
-    nuevo_valor = '0' if estado and estado['valor'] == '1' else '1'
-
-    if estado:
-        cursor.execute("UPDATE configuracion SET valor = ? WHERE clave = 'retiros_habilitados'", (nuevo_valor,))
-    else:
-        cursor.execute("INSERT INTO configuracion (clave, valor) VALUES (?, ?)", ('retiros_habilitados', nuevo_valor))
-
+    conn.execute("UPDATE configuracion SET valor = ? WHERE clave = 'retiros_habilitados'", (nuevo_estado,))
     conn.commit()
     conn.close()
 
     return redirect('/admin_dashboard')
-# ---------------------- LOGOUT ----------------------
+# ---------------------- LOGOUT USUARIO ----------------------
+
+@app.route('/logout')
+def logout():
+    session.pop('usuario_id', None)
+    return redirect('/login')
+
+# ---------------------- LOGOUT ADMIN ----------------------
+
 @app.route('/admin_logout')
 def admin_logout():
     session.pop('admin', None)
     return redirect('/admin_login')
 
+# ---------------------- EJECUCIÓN ----------------------
 
-# ---------------------- MAIN ----------------------
 if __name__ == "__main__":
     init_db()
-    app.run()
+    app.run(debug=True)
+
 
