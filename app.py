@@ -381,6 +381,13 @@ def logout_usuario():
 def admin_logout():
     session.pop('admin', None)
     return redirect('/admin_login')
+# ---------------------- RUTA RAÍZ ----------------------
+@app.route('/')
+def index():
+    if 'usuario' in session:
+        return redirect('/dashboard')
+    else:
+        return redirect('/login')
 # ---------------------- MAIN ----------------------
 if __name__ == "__main__":
     init_db()
