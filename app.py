@@ -190,10 +190,11 @@ def login():
     return render_template('login.html')
 
 
-@app.route('/logout')
-def logout():
+@app.route('/logout', endpoint='logout')
+def logout_usuario():
     session.pop('usuario_id', None)
     return redirect(url_for('login'))
+
 @app.route('/dashboard')
 def dashboard():
     if 'usuario_id' not in session:
