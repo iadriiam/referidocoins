@@ -2,10 +2,11 @@ from flask import Flask, request, jsonify, render_template, redirect, url_for, s
 import sqlite3
 from werkzeug.security import generate_password_hash, check_password_hash
 from datetime import datetime, timedelta
+import random
+import string
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-import os
 import json
 
 app = Flask(__name__)
@@ -40,10 +41,10 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             usuario_id INTEGER,
             monto REAL,
-            metodo TEXT,
             moneda TEXT,
-            estado TEXT,
-            fecha TEXT
+            fecha TEXT,
+            aprobado INTEGER DEFAULT 0,
+            tipo_moneda_real TEXT
         )
     """)
 
@@ -52,387 +53,431 @@ def init_db():
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             usuario_id INTEGER,
             monto REAL,
-            estado TEXT,
-            fecha TEXT
+            fecha TEXT,
+            procesado INTEGER DEFAULT 0
         )
     """)
 
     c.execute("""
         CREATE TABLE IF NOT EXISTS admin (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
-            username TEXT,
-            password TEXT
+            usuario TEXT NOT NULL,
+            contrasena TEXT NOT NULL
         )
     """)
 
-    # Crear admin por defecto si no existe
-    c.execute("SELECT * FROM admin WHERE username = ?", ('shanks',))
-    if not c.fetchone():
-        c.execute("INSERT INTO admin (username, password) VALUES (?, ?)", ('shanks', 'akagamiarmless'))
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS control (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            retiros_habilitados INTEGER DEFAULT 0
+        )
+    """)
 
     conn.commit()
     conn.close()
+# ------------------------ UTILIDADES ------------------------
+def get_db_connection():
+    conn = sqlite3.connect(DATABASE)
+    conn.row_factory = sqlite3.Row
+    return conn
 
-init_db()
-# ------------------------ REGISTRO ------------------------
+def obtener_usuario_por_correo(correo):
+    conn = get_db_connection()
+    user = conn.execute('SELECT * FROM usuarios WHERE correo = ?', (correo,)).fetchone()
+    conn.close()
+    return user
+
+def obtener_usuario_por_id(user_id):
+    conn = get_db_connection()
+    user = conn.execute('SELECT * FROM usuarios WHERE id = ?', (user_id,)).fetchone()
+    conn.close()
+    return user
+
+def calcular_saldo_por_moneda(usuario_id):
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("""
+        SELECT tipo_moneda_real, SUM(monto) 
+        FROM depositos 
+        WHERE usuario_id = ? AND aprobado = 1 
+        GROUP BY tipo_moneda_real
+    """, (usuario_id,))
+    resultados = cursor.fetchall()
+    saldos = {fila[0]: round(fila[1], 2) for fila in resultados if fila[0] is not None}
+    conn.close()
+    return saldos
+
+def enviar_correo(destinatario, asunto, cuerpo):
+    remitente = "referidocoins@gmail.com"
+    password = "xxxxxxxx"  # Reemplaza con tu contraseña de aplicación
+
+    msg = MIMEMultipart()
+    msg['From'] = remitente
+    msg['To'] = destinatario
+    msg['Subject'] = asunto
+
+    msg.attach(MIMEText(cuerpo, 'plain'))
+
+    try:
+        server = smtplib.SMTP('smtp.gmail.com', 587)
+        server.starttls()
+        server.login(remitente, password)
+        texto = msg.as_string()
+        server.sendmail(remitente, destinatario, texto)
+        server.quit()
+        return True
+    except Exception as e:
+        print(f"Error al enviar correo: {e}")
+        return False
+# ------------------------ RUTAS DE USUARIO ------------------------
+
+@app.route('/')
+def index():
+    return redirect(url_for('login'))
+
 @app.route('/registro', methods=['GET', 'POST'])
 def registro():
     if request.method == 'POST':
-        data = request.json
-        nombre = data['nombre']
-        correo = data['correo']
-        contrasena = generate_password_hash(data['contrasena'])
-        red = data['red']
-        wallet = data['wallet']
-        referido = data.get('referido', None)
-        codigo_referido = ''.join([c for c in nombre if c.isalnum()]) + str(datetime.now().timestamp()).replace('.', '')[:5]
+        nombre = request.form['nombre']
+        correo = request.form['correo']
+        contrasena = generate_password_hash(request.form['contrasena'])
+        red = request.form['red']
+        wallet = request.form['wallet']
+        referido = request.form.get('referido')
 
-        conn = sqlite3.connect(DATABASE)
-        c = conn.cursor()
+        conn = get_db_connection()
+        cursor = conn.cursor()
 
-        referido_por = None
-        if referido:
-            c.execute("SELECT id FROM usuarios WHERE codigo_referido = ?", (referido,))
-            ref = c.fetchone()
-            if ref:
-                referido_por = ref[0]
-
-        try:
-            c.execute("""INSERT INTO usuarios 
-                        (nombre, correo, contrasena, red, wallet, referido, codigo_referido, referido_por) 
-                        VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
-                      (nombre, correo, contrasena, red, wallet, referido, codigo_referido, referido_por))
-            conn.commit()
-            return jsonify({'success': True})
-        except:
-            return jsonify({'success': False, 'error': 'Correo ya registrado'})
-        finally:
+        # Verificar si ya existe
+        existente = cursor.execute("SELECT * FROM usuarios WHERE correo = ?", (correo,)).fetchone()
+        if existente:
             conn.close()
+            return "El correo ya está registrado."
+
+        codigo_referido = ''.join(random.choices(string.ascii_uppercase + string.digits, k=6))
+        referido_por = None
+
+        if referido:
+            referido_user = cursor.execute("SELECT id FROM usuarios WHERE codigo_referido = ?", (referido,)).fetchone()
+            if referido_user:
+                referido_por = referido_user['id']
+
+        cursor.execute("""
+            INSERT INTO usuarios (nombre, correo, contrasena, red, wallet, referido, codigo_referido, referido_por)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+        """, (nombre, correo, contrasena, red, wallet, referido, codigo_referido, referido_por))
+
+        conn.commit()
+        conn.close()
+        return redirect(url_for('login'))
 
     return render_template('registro.html')
 
-# ------------------------ LOGIN ------------------------
-@app.route('/', methods=['GET', 'POST'])
+
+@app.route('/login', methods=['GET', 'POST'])
 def login():
     if request.method == 'POST':
         correo = request.form['correo']
         contrasena = request.form['contrasena']
+        user = obtener_usuario_por_correo(correo)
 
-        conn = sqlite3.connect(DATABASE)
-        c = conn.cursor()
-        c.execute("SELECT id, contrasena, nombre FROM usuarios WHERE correo = ?", (correo,))
-        user = c.fetchone()
-        conn.close()
-
-        if user and check_password_hash(user[1], contrasena):
-            session['usuario_id'] = user[0]
-            session['nombre'] = user[2]
+        if user and check_password_hash(user['contrasena'], contrasena):
+            session['usuario_id'] = user['id']
             return redirect(url_for('dashboard'))
         else:
-            return render_template('login.html', error="Credenciales inválidas")
+            return "Credenciales inválidas"
 
     return render_template('login.html')
 
-# ------------------------ RECOMPENSA DIARIA ------------------------
-@app.route('/recompensa-diaria', methods=['POST'])
-def recompensa_diaria():
-    if 'usuario_id' not in session:
-        return jsonify({'error': 'No autenticado'}), 401
 
-    usuario_id = session['usuario_id']
-    conn = sqlite3.connect(DATABASE)
-    c = conn.cursor()
-    c.execute("SELECT ultima_recompensa, fondos_depositados FROM usuarios WHERE id = ?", (usuario_id,))
-    row = c.fetchone()
-
-    if not row:
-        conn.close()
-        return jsonify({'error': 'Usuario no encontrado'}), 404
-
-    ultima, invertido = row
-    ahora = datetime.now()
-
-    if ultima:
-        ultima_fecha = datetime.strptime(ultima, "%Y-%m-%d %H:%M:%S")
-        if ahora - ultima_fecha < timedelta(hours=24):
-            restante = timedelta(hours=24) - (ahora - ultima_fecha)
-            conn.close()
-            return jsonify({'error': f'Ya reclamaste. Intenta de nuevo en {str(restante).split(".")[0]}'}), 400
-
-    recompensa = round(invertido * 0.03, 2)
-    c.execute("UPDATE usuarios SET bonos = bonos + ?, ultima_recompensa = ? WHERE id = ?",
-              (recompensa, ahora.strftime("%Y-%m-%d %H:%M:%S"), usuario_id))
-    conn.commit()
-    conn.close()
-
-    return jsonify({'success': True, 'bono': recompensa})
-# ------------------------ DASHBOARD ------------------------
+@app.route('/logout')
+def logout():
+    session.pop('usuario_id', None)
+    return redirect(url_for('login'))
 @app.route('/dashboard')
 def dashboard():
     if 'usuario_id' not in session:
         return redirect(url_for('login'))
 
     usuario_id = session['usuario_id']
-    conn = sqlite3.connect(DATABASE)
-    c = conn.cursor()
+    conn = get_db_connection()
+    cursor = conn.cursor()
 
-    c.execute("SELECT nombre, saldo, bonos, codigo_referido FROM usuarios WHERE id = ?", (usuario_id,))
-    user = c.fetchone()
-    nombre_usuario, saldo_total, bonos, codigo_referido = user
+    # Datos del usuario
+    user = cursor.execute("SELECT * FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
 
-    # Saldo por moneda
-    c.execute("SELECT tipo_moneda_real, SUM(monto) FROM depositos WHERE usuario_id = ? AND estado = 'confirmado' GROUP BY tipo_moneda_real", (usuario_id,))
-    saldo_monedas = {row[0]: row[1] for row in c.fetchall()}
+    # Saldos por tipo de moneda
+    saldo_monedas = cursor.execute("""
+        SELECT tipo_moneda_real, SUM(monto) as total
+        FROM depositos
+        WHERE usuario_id = ? AND aprobado = 1
+        GROUP BY tipo_moneda_real
+    """, (usuario_id,)).fetchall()
 
-    # Total referidos
-    c.execute("SELECT COUNT(*) FROM usuarios WHERE referido_por = ?", (usuario_id,))
-    total_referidos = c.fetchone()[0]
+    saldo_monedas_dict = {fila['tipo_moneda_real']: round(fila['total'], 2) for fila in saldo_monedas}
 
-    # Historial depósitos
-    c.execute("SELECT monto, tipo_moneda_real, fecha FROM depositos WHERE usuario_id = ? AND estado = 'confirmado' ORDER BY fecha DESC", (usuario_id,))
-    depositos = [{'monto': row[0], 'moneda': row[1], 'fecha': row[2]} for row in c.fetchall()]
+    # Ganancias (bonos)
+    ganancias = round(user['bonos'], 2)
 
-    # Historial retiros
-    c.execute("SELECT monto, fecha FROM retiros WHERE usuario_id = ? ORDER BY fecha DESC")
-    retiros = [{'monto': row[0], 'fecha': row[1]} for row in c.fetchall()]
+    # Referidos
+    total_referidos = cursor.execute("SELECT COUNT(*) FROM usuarios WHERE referido_por = ?", (usuario_id,)).fetchone()[0]
 
-    # Estadísticas para gráficos
-    c.execute("SELECT strftime('%Y-%m-%d', fecha) as dia, SUM(monto) FROM depositos WHERE usuario_id = ? AND estado = 'confirmado' GROUP BY dia ORDER BY dia ASC", (usuario_id,))
-    depositos_json = [{'fecha': row[0], 'monto': row[1]} for row in c.fetchall()]
+    # Depósitos aprobados para historial y gráficos
+    depositos = cursor.execute("""
+        SELECT monto, tipo_moneda_real AS moneda, fecha
+        FROM depositos
+        WHERE usuario_id = ? AND aprobado = 1
+        ORDER BY fecha DESC
+    """, (usuario_id,)).fetchall()
 
-    c.execute("SELECT strftime('%Y-%m-%d', fecha) as dia, SUM(monto) FROM retiros WHERE usuario_id = ? GROUP BY dia ORDER BY dia ASC", (usuario_id,))
-    retiros_json = [{'fecha': row[0], 'monto': row[1]} for row in c.fetchall()]
+    depositos_json = [{'monto': dep['monto'], 'fecha': dep['fecha']} for dep in depositos]
+
+    # Retiros aprobados
+    retiros = cursor.execute("""
+        SELECT monto, fecha
+        FROM retiros
+        WHERE usuario_id = ? AND procesado = 1
+        ORDER BY fecha DESC
+    """, (usuario_id,)).fetchall()
+
+    retiros_json = [{'monto': ret['monto'], 'fecha': ret['fecha']} for ret in retiros]
 
     conn.close()
 
     return render_template('dashboard.html',
-                           nombre_usuario=nombre_usuario,
-                           saldo_monedas=saldo_monedas,
-                           ganancias=bonos,
-                           codigo_referido=codigo_referido,
+                           nombre_usuario=user['nombre'],
+                           codigo_referido=user['codigo_referido'],
+                           saldo_monedas=saldo_monedas_dict,
+                           ganancias=ganancias,
                            total_referidos=total_referidos,
                            depositos=depositos,
-                           retiros=retiros,
                            depositos_json=depositos_json,
+                           retiros=retiros,
                            retiros_json=retiros_json)
-
-# ------------------------ ENVIAR DEPÓSITO ------------------------
 @app.route('/depositar', methods=['POST'])
 def depositar():
     if 'usuario_id' not in session:
-        return jsonify({'error': 'No autenticado'}), 401
+        return jsonify({'success': False, 'mensaje': 'No has iniciado sesión'})
 
-    data = request.json
-    monto = data.get('monto')
-    metodo = data.get('moneda')
+    usuario_id = session['usuario_id']
+    datos = request.get_json()
+    monto = datos.get('monto')
+    metodo = datos.get('metodo')
 
     if not monto or not metodo:
-        return jsonify({'error': 'Faltan datos del depósito'}), 400
+        return jsonify({'success': False, 'mensaje': 'Faltan datos del depósito'})
 
-    conn = sqlite3.connect(DATABASE)
-    c = conn.cursor()
-    c.execute("""INSERT INTO depositos (usuario_id, monto, tipo_moneda_real, estado, fecha) 
-                 VALUES (?, ?, ?, 'pendiente', datetime('now'))""", 
-              (session['usuario_id'], monto, metodo))
+    fecha = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        INSERT INTO depositos (usuario_id, monto, tipo_moneda_real, fecha, aprobado)
+        VALUES (?, ?, ?, ?, 0)
+    """, (usuario_id, monto, metodo, fecha))
+
     conn.commit()
     conn.close()
 
-    return jsonify({'success': True})
-# ------------------------ ENVIAR RETIRO ------------------------
+    return jsonify({'success': True, 'mensaje': 'Depósito registrado correctamente. Será verificado en breve.'})
+
+
 @app.route('/retirar', methods=['POST'])
 def retirar():
     if 'usuario_id' not in session:
-        return jsonify({'error': 'No autenticado'}), 401
+        return jsonify({'success': False, 'mensaje': 'No has iniciado sesión'})
 
-    data = request.json
-    monto = float(data.get('monto'))
+    usuario_id = session['usuario_id']
+    datos = request.get_json()
+    monto = datos.get('monto')
 
-    if monto < 10:
-        return jsonify({'error': 'El retiro mínimo es $10'}), 400
+    if not monto:
+        return jsonify({'success': False, 'mensaje': 'Faltan datos del retiro'})
 
-    conn = sqlite3.connect(DATABASE)
-    c = conn.cursor()
+    if float(monto) < 10:
+        return jsonify({'success': False, 'mensaje': 'El monto mínimo de retiro es $10'})
 
-    c.execute("SELECT bonos FROM usuarios WHERE id = ?", (session['usuario_id'],))
-    bonos_actuales = c.fetchone()[0]
+    fecha = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
+    conn = get_db_connection()
+    cursor = conn.cursor()
 
-    c.execute("SELECT habilitar_retiros FROM configuracion")
-    retiros_habilitados = c.fetchone()[0]
-
-    if not retiros_habilitados:
+    usuario = cursor.execute("SELECT bonos FROM usuarios WHERE id = ?", (usuario_id,)).fetchone()
+    if not usuario or usuario['bonos'] < float(monto):
         conn.close()
-        return jsonify({'error': 'Los retiros están deshabilitados temporalmente'}), 403
+        return jsonify({'success': False, 'mensaje': 'No tienes suficientes ganancias disponibles'})
 
-    if monto > bonos_actuales:
-        conn.close()
-        return jsonify({'error': 'Fondos insuficientes en ganancias'}), 400
+    # Descontar de bonos
+    cursor.execute("UPDATE usuarios SET bonos = bonos - ? WHERE id = ?", (monto, usuario_id))
 
-    c.execute("""INSERT INTO retiros (usuario_id, monto, estado, fecha)
-                 VALUES (?, ?, 'pendiente', datetime('now'))""",
-              (session['usuario_id'], monto))
+    # Insertar solicitud de retiro
+    cursor.execute("""
+        INSERT INTO retiros (usuario_id, monto, fecha, procesado)
+        VALUES (?, ?, ?, 0)
+    """, (usuario_id, monto, fecha))
 
     conn.commit()
     conn.close()
 
-    return jsonify({'success': True})
+    return jsonify({'success': True, 'mensaje': 'Solicitud de retiro enviada. Será revisada en breve.'})
 
 
-# ------------------------ LOGOUT ------------------------
-@app.route('/logout')
-def logout():
-    session.clear()
-    return redirect(url_for('login'))
+@app.route('/recompensa_diaria', methods=['POST'])
+def recompensa_diaria():
+    if 'usuario_id' not in session:
+        return jsonify({'success': False, 'mensaje': 'No has iniciado sesión'})
 
+    usuario_id = session['usuario_id']
+    ahora = datetime.now()
 
-# ------------------------ PANEL ADMINISTRADOR ------------------------
-@app.route('/admin/login', methods=['GET', 'POST'])
+    conn = get_db_connection()
+    cursor = conn.cursor()
+
+    ultima_fecha = cursor.execute("""
+        SELECT ultima_recompensa FROM usuarios WHERE id = ?
+    """, (usuario_id,)).fetchone()
+
+    if ultima_fecha and ultima_fecha['ultima_recompensa']:
+        ultima = datetime.strptime(ultima_fecha['ultima_recompensa'], '%Y-%m-%d %H:%M:%S')
+        if (ahora - ultima).total_seconds() < 86400:
+            conn.close()
+            return jsonify({'success': False, 'mensaje': 'Debes esperar 24 horas para reclamar nuevamente'})
+
+    # Calcular recompensa: 3% de inversión aprobada
+    total_inversion = cursor.execute("""
+        SELECT SUM(monto) as total FROM depositos WHERE usuario_id = ? AND aprobado = 1
+    """, (usuario_id,)).fetchone()['total'] or 0
+
+    recompensa = round(total_inversion * 0.03, 2)
+
+    cursor.execute("UPDATE usuarios SET bonos = bonos + ?, ultima_recompensa = ? WHERE id = ?",
+                   (recompensa, ahora.strftime('%Y-%m-%d %H:%M:%S'), usuario_id))
+
+    conn.commit()
+    conn.close()
+
+    return jsonify({'success': True, 'mensaje': f'Recompensa de ${recompensa} acreditada correctamente'})
+# ---------------- PANEL DE ADMINISTRACIÓN ----------------
+
+@app.route('/admin_login', methods=['GET', 'POST'])
 def admin_login():
     if request.method == 'POST':
-        username = request.form['username']
-        password = request.form['password']
-        if username == 'shanks' and password == 'akagamiarmless':
+        correo = request.form['correo']
+        contrasena = request.form['contrasena']
+        if correo == 'admin@admin.com' and contrasena == 'admin123':
             session['admin'] = True
-            return redirect(url_for('admin_dashboard'))
+            return redirect('/admin_dashboard')
         else:
-            return render_template('admin_login.html', error='Credenciales inválidas')
+            return render_template('admin_login.html', mensaje='Credenciales inválidas')
     return render_template('admin_login.html')
 
 
-@app.route('/admin/logout')
-def admin_logout():
-    session.pop('admin', None)
-    return redirect(url_for('admin_login'))
-
-
-@app.route('/admin')
+@app.route('/admin_dashboard')
 def admin_dashboard():
     if not session.get('admin'):
-        return redirect(url_for('admin_login'))
+        return redirect('/admin_login')
 
-    conn = sqlite3.connect(DATABASE)
-    c = conn.cursor()
+    conn = get_db_connection()
+    cursor = conn.cursor()
 
-    c.execute("SELECT d.id, u.nombre, d.monto, d.tipo_moneda_real, d.fecha FROM depositos d JOIN usuarios u ON d.usuario_id = u.id WHERE d.estado = 'pendiente'")
-    depositos = c.fetchall()
+    # Depósitos pendientes
+    depositos = cursor.execute("""
+        SELECT d.*, u.nombre FROM depositos d
+        JOIN usuarios u ON d.usuario_id = u.id
+        WHERE d.aprobado = 0
+    """).fetchall()
 
-    c.execute("SELECT r.id, u.nombre, r.monto, r.fecha FROM retiros r JOIN usuarios u ON r.usuario_id = u.id WHERE r.estado = 'pendiente'")
-    retiros = c.fetchall()
+    # Retiros pendientes
+    retiros = cursor.execute("""
+        SELECT r.*, u.nombre FROM retiros r
+        JOIN usuarios u ON r.usuario_id = u.id
+        WHERE r.procesado = 0
+    """).fetchall()
 
-    c.execute("SELECT habilitar_retiros FROM configuracion")
-    retiros_habilitados = c.fetchone()[0]
+    # Ver estado de retiros habilitados
+    estado = cursor.execute("SELECT valor FROM configuracion WHERE clave = 'retiros_habilitados'").fetchone()
+    habilitados = estado['valor'] == '1' if estado else False
 
     conn.close()
+    return render_template('admin_dashboard.html', depositos=depositos, retiros=retiros, habilitados=habilitados)
 
-    return render_template('admin_dashboard.html', depositos=depositos, retiros=retiros, retiros_habilitados=retiros_habilitados)
 
-
-@app.route('/admin/confirmar_deposito/<int:deposito_id>', methods=['POST'])
-def confirmar_deposito(deposito_id):
+@app.route('/aprobar_deposito/<int:id>', methods=['POST'])
+def aprobar_deposito(id):
     if not session.get('admin'):
-        return "No autorizado", 403
+        return redirect('/admin_login')
 
-    conn = sqlite3.connect(DATABASE)
-    c = conn.cursor()
+    moneda = request.form.get('tipo_moneda_real')
+    if not moneda:
+        return 'Falta seleccionar tipo de moneda', 400
 
-    c.execute("SELECT usuario_id, monto, tipo_moneda_real FROM depositos WHERE id = ? AND estado = 'pendiente'", (deposito_id,))
-    deposito = c.fetchone()
+    conn = get_db_connection()
+    cursor = conn.cursor()
 
+    deposito = cursor.execute("SELECT * FROM depositos WHERE id = ?", (id,)).fetchone()
     if not deposito:
         conn.close()
-        return "Depósito no encontrado", 404
+        return 'Depósito no encontrado', 404
 
-    usuario_id, monto, moneda = deposito
-
-    c.execute("UPDATE depositos SET estado = 'confirmado' WHERE id = ?", (deposito_id,))
-    c.execute("UPDATE usuarios SET saldo = saldo + ?, fondos_depositados = fondos_depositados + ? WHERE id = ?", (monto, monto, usuario_id))
-
+    cursor.execute("UPDATE depositos SET aprobado = 1, tipo_moneda_real = ? WHERE id = ?", (moneda, id))
+    cursor.execute("UPDATE usuarios SET saldo = saldo + ?, fondos_depositados = fondos_depositados + ? WHERE id = ?",
+                   (deposito['monto'], deposito['monto'], deposito['usuario_id']))
     conn.commit()
     conn.close()
 
-    return redirect(url_for('admin_dashboard'))
+    return redirect('/admin_dashboard')
 
 
-@app.route('/admin/procesar_retiro/<int:retiro_id>', methods=['POST'])
-def procesar_retiro(retiro_id):
+@app.route('/procesar_retiro/<int:id>', methods=['POST'])
+def procesar_retiro(id):
     if not session.get('admin'):
-        return "No autorizado", 403
+        return redirect('/admin_login')
 
-    conn = sqlite3.connect(DATABASE)
-    c = conn.cursor()
-
-    c.execute("SELECT usuario_id, monto FROM retiros WHERE id = ? AND estado = 'pendiente'", (retiro_id,))
-    retiro = c.fetchone()
-
-    if not retiro:
-        conn.close()
-        return "Retiro no encontrado", 404
-
-    usuario_id, monto = retiro
-
-    c.execute("UPDATE retiros SET estado = 'procesado' WHERE id = ?", (retiro_id,))
-    c.execute("UPDATE usuarios SET bonos = bonos - ? WHERE id = ?", (monto, usuario_id))
-
+    conn = get_db_connection()
+    cursor = conn.cursor()
+    cursor.execute("UPDATE retiros SET procesado = 1 WHERE id = ?", (id,))
     conn.commit()
     conn.close()
 
-    return redirect(url_for('admin_dashboard'))
+    return redirect('/admin_dashboard')
 
 
-@app.route('/admin/toggle-retiros', methods=['POST'])
+@app.route('/toggle_retiros', methods=['POST'])
 def toggle_retiros():
     if not session.get('admin'):
-        return "No autorizado", 403
+        return redirect('/admin_login')
 
-    conn = sqlite3.connect(DATABASE)
-    c = conn.cursor()
+    conn = get_db_connection()
+    cursor = conn.cursor()
 
-    c.execute("SELECT habilitar_retiros FROM configuracion")
-    actual = c.fetchone()[0]
-    nuevo_estado = 0 if actual else 1
-    c.execute("UPDATE configuracion SET habilitar_retiros = ?", (nuevo_estado,))
-    conn.commit()
-    conn.close()
+    estado = cursor.execute("SELECT valor FROM configuracion WHERE clave = 'retiros_habilitados'").fetchone()
+    nuevo_valor = '0' if estado and estado['valor'] == '1' else '1'
 
-    return redirect(url_for('admin_dashboard'))
-# ------------------------ RECOMPENSA DIARIA ------------------------
-@app.route('/recompensa', methods=['POST'])
-def recompensa_diaria():
-    if 'usuario_id' not in session:
-        return jsonify({'error': 'No autenticado'}), 401
-
-    conn = sqlite3.connect(DATABASE)
-    c = conn.cursor()
-
-    c.execute("SELECT fondos_depositados FROM usuarios WHERE id = ?", (session['usuario_id'],))
-    inversion = c.fetchone()[0]
-
-    c.execute("SELECT ultima_recompensa FROM recompensas WHERE usuario_id = ?", (session['usuario_id'],))
-    row = c.fetchone()
-
-    ahora = datetime.now()
-
-    if row:
-        ultima_recompensa = datetime.strptime(row[0], "%Y-%m-%d %H:%M:%S")
-        diferencia = ahora - ultima_recompensa
-        if diferencia.total_seconds() < 86400:
-            tiempo_restante = 86400 - diferencia.total_seconds()
-            horas = int(tiempo_restante // 3600)
-            minutos = int((tiempo_restante % 3600) // 60)
-            return jsonify({'error': f'Debes esperar {horas}h {minutos}min para reclamar de nuevo'}), 403
-
-        c.execute("UPDATE recompensas SET ultima_recompensa = ? WHERE usuario_id = ?", (ahora.strftime("%Y-%m-%d %H:%M:%S"), session['usuario_id']))
+    if estado:
+        cursor.execute("UPDATE configuracion SET valor = ? WHERE clave = 'retiros_habilitados'", (nuevo_valor,))
     else:
-        c.execute("INSERT INTO recompensas (usuario_id, ultima_recompensa) VALUES (?, ?)", (session['usuario_id'], ahora.strftime("%Y-%m-%d %H:%M:%S")))
+        cursor.execute("INSERT INTO configuracion (clave, valor) VALUES (?, ?)", ('retiros_habilitados', nuevo_valor))
 
-    recompensa = round(inversion * 0.03, 2)
-    c.execute("UPDATE usuarios SET bonos = bonos + ? WHERE id = ?", (recompensa, session['usuario_id']))
     conn.commit()
     conn.close()
 
-    return jsonify({'success': True, 'bono': recompensa})
+    return redirect('/admin_dashboard')
+# ---------------------- LOGOUT ----------------------
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect('/login')
 
 
-# ------------------------ INICIAR APP ------------------------
+@app.route('/admin_logout')
+def admin_logout():
+    session.pop('admin', None)
+    return redirect('/admin_login')
+
+
+# ---------------------- MAIN ----------------------
+
 if __name__ == '__main__':
     init_db()
     app.run(debug=True)
+
