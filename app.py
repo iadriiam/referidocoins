@@ -146,13 +146,6 @@ def login():
 
     return render_template('login.html')
 
-# ---------------------- LOGOUT ----------------------
-
-@app.route('/logout')
-def logout():
-    session.pop('usuario', None)
-    return redirect('/login')
-
 # ---------------------- DASHBOARD ----------------------
 
 @app.route('/dashboard')
@@ -366,17 +359,22 @@ def toggle_retiros():
     conn.close()
 
     return redirect('/admin_dashboard')
-# ---------------------- LOGOUT ADMIN ----------------------
+# ---------------------- LOGOUT USUARIO ----------------------
+@app.route('/logout')
+def logout_usuario():
+    session.pop('usuario', None)
+    return redirect('/login')
 
+
+# ---------------------- LOGOUT ADMIN ----------------------
 @app.route('/admin_logout')
 def admin_logout():
     session.pop('admin', None)
     return redirect('/admin_login')
 
-# ---------------------- EJECUCIÓN ----------------------
 
+# ---------------------- MAIN ----------------------
 if __name__ == "__main__":
     init_db()
-    app.run(debug=True)
-
+    app.run()
 
