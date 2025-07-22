@@ -462,13 +462,6 @@ def toggle_retiros():
 
     return redirect('/admin_dashboard')
 # ---------------------- LOGOUT ----------------------
-
-@app.route('/logout')
-def logout():
-    session.clear()
-    return redirect('/login')
-
-
 @app.route('/admin_logout')
 def admin_logout():
     session.pop('admin', None)
@@ -476,8 +469,7 @@ def admin_logout():
 
 
 # ---------------------- MAIN ----------------------
-
-if __name__ == '__main__':
+if __name__ == "__main__":
     init_db()
-    app.run(debug=True)
+    app.run()
 
