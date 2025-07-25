@@ -96,12 +96,12 @@
 <div class="container-main">
   <!-- Menú lateral -->
   <div class="sidebar">
-    <button class="btn btn-outline-primary" onclick="toggleSeccion('estadisticas')"><i class="fas fa-chart-bar me-2"></i>Estadísticas</button>
-    <button class="btn btn-outline-success" onclick="toggleSeccion('referido')"><i class="fas fa-gift me-2"></i>Referido</button>
-    <button class="btn btn-outline-info" onclick="toggleSeccion('deposito')"><i class="fas fa-coins me-2"></i>Depositar</button>
-    <button class="btn btn-outline-warning" onclick="toggleSeccion('retiro')"><i class="fas fa-atm me-2"></i>Retiro</button>
-    <button class="btn btn-outline-secondary" onclick="toggleSeccion('historialDepositos')"><i class="fas fa-file-invoice-dollar me-2"></i>Depósitos</button>
-    <button class="btn btn-outline-dark" onclick="toggleSeccion('historialRetiros')"><i class="fas fa-file-invoice me-2"></i>Retiros</button>
+    <button class="btn btn-outline-primary" onclick="mostrarSeccion('estadisticas')"><i class="fas fa-chart-bar me-2"></i>Estadísticas</button>
+    <button class="btn btn-outline-success" onclick="mostrarSeccion('referido')"><i class="fas fa-gift me-2"></i>Referido</button>
+    <button class="btn btn-outline-info" onclick="mostrarSeccion('deposito')"><i class="fas fa-coins me-2"></i>Depositar</button>
+    <button class="btn btn-outline-warning" onclick="mostrarSeccion('retiro')"><i class="fas fa-atm me-2"></i>Retiro</button>
+    <button class="btn btn-outline-secondary" onclick="mostrarSeccion('historialDepositos')"><i class="fas fa-file-invoice-dollar me-2"></i>Depósitos</button>
+    <button class="btn btn-outline-dark" onclick="mostrarSeccion('historialRetiros')"><i class="fas fa-file-invoice me-2"></i>Retiros</button>
     <a href="https://wa.me/184789988642" class="btn btn-success"><i class="fab fa-whatsapp me-2"></i>WhatsApp</a>
     <a href="https://t.me/referidocoins" class="btn btn-primary"><i class="fab fa-telegram me-2"></i>Telegram</a>
   </div>
@@ -180,19 +180,38 @@
         <p id="mensajeDeposito" class="mt-3" aria-live="polite"></p>
       </form>
     </div>
-    <!-- Formulario de Retiro -->
-    <div id="retiro" class="seccion card p-4">
-      <span class="btn-x" onclick="cerrarSeccion('retiro')">X</span>
-      <h5 class="card-title mb-3">Solicitar Retiro</h5>
-      <form id="retirarForm" novalidate>
-        <div class="mb-3">
-          <label for="montoRetiro" class="form-label">Monto a Retirar (mínimo $10)</label>
-          <input type="number" class="form-control" id="montoRetiro" min="10" step="0.01" required />
-        </div>
-        <button type="submit" class="btn btn-primary w-100">Solicitar Retiro</button>
-        <p id="mensajeRetiro" class="mt-3" aria-live="polite"></p>
-      </form>
+<!-- Formulario de Retiro -->
+<div id="retiro" class="seccion card p-4">
+  <span class="btn-x" onclick="cerrarSeccion('retiro')">X</span>
+  <h5 class="card-title mb-3">Solicitar Retiro</h5>
+  <form id="retirarForm" novalidate>
+    <div class="mb-3">
+      <label for="montoRetiro" class="form-label">Monto a Retirar (mínimo $10)</label>
+      <input type="number" class="form-control" id="montoRetiro" min="10" step="0.01" required />
     </div>
+
+    <div class="mb-3">
+      <label for="metodoRetiro" class="form-label">Método de Retiro</label>
+      <select class="form-select" id="metodoRetiro" required>
+        <option value="">Seleccione un método</option>
+        <option value="USDT TRC20">USDT (TRC20)</option>
+        <option value="USDT ERC20">USDT (ERC20)</option>
+        <option value="Banco Popular">Banco Popular</option>
+        <option value="Banco de Reservas">Banco de Reservas</option>
+        <option value="PayPal">PayPal</option>
+      </select>
+    </div>
+
+    <div class="mb-3">
+      <label for="destinoRetiro" class="form-label">Dirección / Cuenta / Correo</label>
+      <input type="text" class="form-control" id="destinoRetiro" placeholder="Dirección wallet, cuenta o correo" required />
+    </div>
+
+    <button type="submit" class="btn btn-primary w-100">Solicitar Retiro</button>
+    <p id="mensajeRetiro" class="mt-3 fw-semibold text-danger" aria-live="polite"></p>
+  </form>
+</div>
+
 
     <!-- Historial de Depósitos -->
     <div id="historialDepositos" class="seccion card p-4">
@@ -229,13 +248,6 @@
         <p class="text-muted">Aún no has realizado retiros.</p>
       {% endif %}
     </div>
-
-    <!-- Contacto -->
-    <div class="d-flex justify-content-center gap-3 mt-4 flex-wrap">
-      <a href="https://wa.me/4789988642" target="_blank" class="btn btn-success">📱 WhatsApp</a>
-      <a href="https://t.me/tu_usuario" target="_blank" class="btn btn-info text-white">💬 Telegram</a>
-    </div>
-
     <img src="/static/dashboard_robot.png" alt="Referido Coins Robot" class="robot-img">
   </div> <!-- Cierre container -->
 <!-- Scripts -->
@@ -382,7 +394,7 @@
       return;
     }
 
-    const response = await fetch("/retirar", {
+    const response = await fetch("/retiro", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ monto: monto })
@@ -417,12 +429,22 @@
   }
 
   btnRecompensa.addEventListener("click", async () => {
-    const response = await fetch("/recompensa", { method: "POST" });
+    const response = await fetch("/recompensa", { 
+      headers: {
+      'Accept': 'application/json',
+      'Content-Type': 'application/json'
+    },
+      method: "POST" 
+      });
     const data = await response.json();
-
-    if (data.exito) {
+    if (response.status === 200 && data) {
       mensajeRecompensa.textContent = "Has recibido el 3% de tu inversión 🎉";
       btnRecompensa.disabled = true;
+      const bonosElem = document.getElementById("bonos");
+      const actual = parseFloat(bonosElem.innerHTML.replace(/[^0-9.]/g, "")) || 0;
+      const suma = actual + (parseFloat(data.recompensa) || 0);
+      console.debug(actual, suma);
+      bonosElem.innerHTML = "$" + suma.toFixed(2);
       localStorage.setItem("ultimaRecompensa", Date.now());
     } else {
       mensajeRecompensa.textContent = data.mensaje || "No se pudo otorgar la recompensa.";

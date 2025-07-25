@@ -38,10 +38,6 @@
     .btn-primary:disabled {
       background-color: #aac8ff;
     }
-    .form-text.text-danger {
-      font-weight: 600;
-      margin-top: 0.25rem;
-    }
     #mensajeRegistro {
       text-align: center;
       margin-top: 1rem;
@@ -76,23 +72,6 @@
       </div>
 
       <div class="mb-3">
-        <label for="red" class="form-label">Red USDT</label>
-        <select class="form-select" id="red" required>
-          <option value="">Selecciona una red</option>
-          <option value="TRC20">TRC20</option>
-          <option value="ERC20">ERC20</option>
-        </select>
-        <div class="invalid-feedback">Selecciona una red.</div>
-      </div>
-
-      <div class="mb-3">
-        <label for="wallet" class="form-label">Dirección Wallet USDT</label>
-        <input type="text" class="form-control" id="wallet" required aria-describedby="walletError" />
-        <div class="form-text text-danger" id="walletError"></div>
-        <div class="invalid-feedback">La dirección no es válida.</div>
-      </div>
-
-      <div class="mb-3">
         <label for="referido" class="form-label">Código de referido (opcional)</label>
         <input type="text" class="form-control" id="referido" />
       </div>
@@ -104,39 +83,16 @@
   </div>
 
   <script>
-    const esWalletValida = (red, direccion) => {
-      if (red === "TRC20") return direccion.startsWith("T") && direccion.length === 34;
-      if (red === "ERC20") return direccion.startsWith("0x") && direccion.length === 42;
-      return false;
-    };
-
     (() => {
       'use strict';
 
       const form = document.getElementById('registroForm');
-      const walletInput = document.getElementById('wallet');
-      const redSelect = document.getElementById('red');
-      const walletError = document.getElementById('walletError');
       const mensajeRegistro = document.getElementById('mensajeRegistro');
       const btnSubmit = document.getElementById('btnSubmit');
-
-      walletInput.addEventListener('input', () => {
-        const red = redSelect.value;
-        const wallet = walletInput.value.trim();
-
-        if (red && !esWalletValida(red, wallet)) {
-          walletInput.classList.add('is-invalid');
-          walletError.textContent = `La dirección no es válida para la red ${red}.`;
-        } else {
-          walletInput.classList.remove('is-invalid');
-          walletError.textContent = '';
-        }
-      });
 
       form.addEventListener('submit', async (e) => {
         e.preventDefault();
 
-        walletError.textContent = '';
         mensajeRegistro.textContent = '';
         mensajeRegistro.className = '';
 
@@ -145,24 +101,10 @@
           return;
         }
 
-        const red = redSelect.value;
-        const wallet = walletInput.value.trim();
-
-        if (!esWalletValida(red, wallet)) {
-          walletError.textContent = `La dirección no es válida para la red ${red}.`;
-          walletInput.classList.add('is-invalid');
-          return;
-        } else {
-          walletInput.classList.remove('is-invalid');
-          walletError.textContent = '';
-        }
-
         const datos = {
           nombre: document.getElementById('nombre').value.trim(),
           correo: document.getElementById('correo').value.trim(),
           contrasena: document.getElementById('contrasena').value,
-          red,
-          wallet,
           referido: document.getElementById('referido').value.trim(),
         };
 
@@ -183,7 +125,6 @@
             mensajeRegistro.className = 'text-success';
             form.reset();
             form.classList.remove('was-validated');
-
             setTimeout(() => window.location.href = '/dashboard', 2000);
           } else {
             mensajeRegistro.textContent = data.mensaje || 'Error al registrar.';
@@ -202,4 +143,5 @@
 
 </body>
 </html>
+
 
