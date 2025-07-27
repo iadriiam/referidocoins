@@ -169,7 +169,8 @@
           <label for="moneda" class="form-label">Método de depósito</label>
           <select class="form-select" id="moneda" required>
             <option value="">Selecciona método</option>
-            <option value="USDT">💲 USDT</option>
+            <option value="USDT TRC20">USDT (TRC20)</option>
+            <option value="USDT ERC20">USDT (ERC20)</option>
             <option value="BTC">₿ Bitcoin</option>
             <option value="reservas">🏦 Banco de Reservas</option>
             <option value="popular">🏦 Banco Popular</option>
@@ -191,8 +192,8 @@
     </div>
 
     <div class="mb-3">
-      <label for="metodoRetiro" class="form-label">Método de Retiro</label>
-      <select class="form-select" id="metodoRetiro" required>
+      <label for="tipoCuenta" class="form-label">Método de Retiro</label>
+      <select class="form-select" id="tipoCuenta" required>
         <option value="">Seleccione un método</option>
         <option value="USDT TRC20">USDT (TRC20)</option>
         <option value="USDT ERC20">USDT (ERC20)</option>
@@ -203,8 +204,8 @@
     </div>
 
     <div class="mb-3">
-      <label for="destinoRetiro" class="form-label">Dirección / Cuenta / Correo</label>
-      <input type="text" class="form-control" id="destinoRetiro" placeholder="Dirección wallet, cuenta o correo" required />
+      <label for="cuentaDestino" class="form-label">Dirección / Cuenta / Correo</label>
+      <input type="text" class="form-control" id="cuentaDestino" placeholder="Dirección wallet, cuenta o correo" required />
     </div>
 
     <button type="submit" class="btn btn-primary w-100">Solicitar Retiro</button>
@@ -387,6 +388,8 @@
   document.getElementById("retirarForm")?.addEventListener("submit", async function (e) {
     e.preventDefault();
     const monto = document.getElementById("montoRetiro").value;
+    const tipoCuenta = document.getElementById("tipoCuenta").value;
+    const cuentaDestino = document.getElementById("cuentaDestino").value;
     const mensaje = document.getElementById("mensajeRetiro");
 
     if (!monto || parseFloat(monto) < 10) {
@@ -397,7 +400,7 @@
     const response = await fetch("/retiro", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ monto: monto })
+      body: JSON.stringify({ monto: monto, tipo_cuenta: tipoCuenta, cuenta_destino: cuentaDestino})
     });
 
     const resultado = await response.json();
@@ -414,19 +417,6 @@
 <script>
   const btnRecompensa = document.getElementById("btnRecompensa");
   const mensajeRecompensa = document.getElementById("mensajeRecompensa");
-
-  // Verifica si ya se reclamó recompensa hoy
-  const ultimaRecompensa = localStorage.getItem("ultimaRecompensa");
-  if (ultimaRecompensa) {
-    const ahora = new Date();
-    const ultima = new Date(parseInt(ultimaRecompensa));
-    const diferencia = ahora - ultima;
-    const horasPasadas = diferencia / (1000 * 60 * 60);
-    if (horasPasadas < 24) {
-      btnRecompensa.disabled = true;
-      mensajeRecompensa.textContent = "Ya reclamaste tu recompensa diaria. Inténtalo más tarde.";
-    }
-  }
 
   btnRecompensa.addEventListener("click", async () => {
     const response = await fetch("/recompensa", { 

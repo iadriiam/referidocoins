@@ -1,4 +1,4 @@
-#!/home/justinjerez/Documents/Development/Personal/referidocoins/venv/bin/python3
+#!/home/justinjerez/Downloads/referidocoins-new/venv/bin/python3
 # -*- coding: utf-8 -*-
 import re
 import sys

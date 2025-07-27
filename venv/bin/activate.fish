@@ -33,7 +33,7 @@ end
 # Unset irrelevant variables.
 deactivate nondestructive
 
-set -gx VIRTUAL_ENV /home/justinjerez/Documents/Development/Personal/referidocoins/venv
+set -gx VIRTUAL_ENV /home/justinjerez/Downloads/referidocoins-new/venv
 
 set -gx _OLD_VIRTUAL_PATH $PATH
 set -gx PATH "$VIRTUAL_ENV/"bin $PATH

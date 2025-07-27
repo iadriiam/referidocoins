@@ -328,6 +328,11 @@ def retiro():
 
     data = request.get_json()
     monto = data.get('monto')
+    tipo_cuenta = data.get('tipo_cuenta')
+    cuenta_destino = data.get('cuenta_destino')
+
+    if not tipo_cuenta or not cuenta_destino:
+        return jsonify({'mensaje': 'Faltan datos de la cuenta de retiro'}), 400
 
     try:
         monto = float(monto)
@@ -351,7 +356,7 @@ def retiro():
     nuevo_saldo = saldo_actual - monto
     c.execute('UPDATE usuarios SET saldo = ? WHERE id = ?', (nuevo_saldo, session['user_id']))
     fecha = datetime.now().strftime('%Y-%m-%d %H:%M:%S')
-    c.execute('INSERT INTO retiros (usuario_id, monto, fecha) VALUES (?, ?, ?)', (session['user_id'], monto, fecha))
+    c.execute('INSERT INTO retiros (usuario_id, monto, fecha, cuenta, tipo_cuenta) VALUES (?, ?, ?, ?, ?)', (session['user_id'], monto, fecha, cuenta_destino, tipo_cuenta))
 
     conn.commit()
     conn.close()
@@ -384,7 +389,7 @@ def admin_dashboard():
 
     c.execute('''
         SELECT r.id, u.nombre,
-               COALESCE(r.wallet, u.wallet) AS wallet,
+               r.cuenta, r.tipo_cuenta,
                r.monto, r.fecha, r.procesado
         FROM retiros r
         JOIN usuarios u ON r.usuario_id = u.id
@@ -394,7 +399,7 @@ def admin_dashboard():
     
 
     c.execute('''
-        SELECT d.id, u.nombre, u.wallet, d.monto, d.moneda, d.fecha, d.confirmado, d.tipo_moneda_real
+        SELECT d.id, u.nombre, d.wallet, d.monto, d.moneda, d.fecha, d.confirmado, d.tipo_moneda_real
         FROM depositos d
         JOIN usuarios u ON d.usuario_id = u.id
         ORDER BY d.fecha DESC
